@@ -1,0 +1,13 @@
+bin/
+dist/
+gofugue
+*.exe
+
+# JS monorepo
+node_modules/
+dist/
+out/
+.turbo/
+*.local
+apps/desktop/resources/gf*
+packages/*/dist/

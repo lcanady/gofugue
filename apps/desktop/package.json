@@ -1,0 +1,93 @@
+{
+  "name": "@gofugue/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:update": "playwright test --update-snapshots"
+  },
+  "dependencies": {
+    "@gofugue/ansi-renderer": "workspace:*",
+    "@gofugue/ipc": "workspace:*",
+    "@radix-ui/react-context-menu": "^2.2.14",
+    "@radix-ui/react-dialog": "^1.1.13",
+    "@radix-ui/react-dropdown-menu": "^2.1.14",
+    "@radix-ui/react-scroll-area": "^1.2.8",
+    "@radix-ui/react-separator": "^1.1.6",
+    "@radix-ui/react-slot": "^1.2.2",
+    "@radix-ui/react-tabs": "^1.1.11",
+    "@radix-ui/react-toast": "^1.2.13",
+    "@radix-ui/react-tooltip": "^1.2.6",
+    "@tanstack/react-virtual": "^3.13.6",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "golden-layout": "^2.6.0",
+    "lucide-react": "^0.511.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-resizable-panels": "^4.9.0",
+    "tailwind-merge": "^3.3.0",
+    "zustand": "^5.0.4"
+  },
+  "devDependencies": {
+    "@electron-toolkit/preload": "^3.0.1",
+    "@electron-toolkit/utils": "^4.0.0",
+    "@playwright/test": "^1.59.1",
+    "@types/node": "^22.15.21",
+    "@types/react": "^18.3.23",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^4.4.1",
+    "autoprefixer": "^10.4.21",
+    "electron": "^35.3.0",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^3.1.0",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "vitest": "^4.1.3"
+  },
+  "build": {
+    "appId": "dev.kumakun.gofugue",
+    "productName": "GoFugue",
+    "directories": {
+      "buildResources": "resources"
+    },
+    "files": [
+      "!**/.vscode/*",
+      "!src/*",
+      "!electron.vite.config.{js,ts,mjs,cjs}",
+      "!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}",
+      "!{.env,.env.*,.npmrc,pnpm-lock.yaml}"
+    ],
+    "mac": {
+      "entitlementsInherit": "resources/entitlements.mac.plist",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Not required"
+      },
+      "notarize": false
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    }
+  }
+}

@@ -1,0 +1,262 @@
+/* ── GoldenLayout base styles ───────────────────────────────────────────── */
+@import 'golden-layout/dist/css/goldenlayout-base.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   GoFugue Design Tokens
+   All values are HSL triples (no hsl() wrapper — Tailwind adds it via
+   the `hsl(var(...))` pattern so opacity modifiers like bg-primary/50 work).
+   ═══════════════════════════════════════════════════════════════════════════ */
+@layer base {
+  :root {
+    /* ── Shell chrome ──────────────────────────────────────────────────── */
+    --background:            224 71% 4%;     /* #080d1a  deep navy-black      */
+    --foreground:            220 14% 91%;    /* #e2e8f0  near-white           */
+
+    --card:                  224 40% 7%;     /* #0d1220  slightly lighter bg  */
+    --card-foreground:       220 14% 91%;
+
+    --popover:               224 40% 8%;
+    --popover-foreground:    220 14% 91%;
+
+    /* Cyan accent — evokes terminal cursor; readable on dark bg */
+    --primary:               187 100% 42%;  /* #00c9d4  cyan-500-ish         */
+    --primary-foreground:    224 71% 4%;    /* deep bg text on cyan           */
+
+    --secondary:             215 28% 16%;   /* #1a2235  slate-800             */
+    --secondary-foreground:  220 14% 91%;
+
+    --muted:                 215 28% 14%;   /* #141c2d  slightly darker       */
+    --muted-foreground:      215 20% 55%;   /* #7b8fa6  muted text            */
+
+    --accent:                215 60% 22%;   /* #142040  blue accent bg        */
+    --accent-foreground:     220 14% 91%;
+
+    --destructive:           0 84% 60%;     /* #f14c4c  red                   */
+    --destructive-foreground: 220 14% 91%;
+
+    --border:                215 28% 18%;   /* #1e2c42  subtle border         */
+    --input:                 215 28% 14%;
+    --ring:                  187 100% 42%;  /* same as primary                */
+
+    --radius:                0.375rem;      /* 6px — slightly tighter than default */
+
+    /* ── Terminal pane ─────────────────────────────────────────────────── */
+    --terminal-bg:           224 71% 3%;    /* #060a12  nearly pure black     */
+    --terminal-fg:           220 14% 91%;   /* same as foreground             */
+    --terminal-cursor:       187 100% 42%;  /* cyan cursor                    */
+    --terminal-selection:    215 60% 30%;   /* blue selection highlight       */
+
+    /* ── ANSI 16-colour palette (CSS vars for runtime theming support) ── */
+    --ansi-0:  #000000;   /* black          */
+    --ansi-1:  #cd3131;   /* red            */
+    --ansi-2:  #0dbc79;   /* green          */
+    --ansi-3:  #e5e510;   /* yellow         */
+    --ansi-4:  #2472c8;   /* blue           */
+    --ansi-5:  #bc3fbc;   /* magenta        */
+    --ansi-6:  #11a8cd;   /* cyan           */
+    --ansi-7:  #e5e5e5;   /* white          */
+    --ansi-8:  #666666;   /* bright black   */
+    --ansi-9:  #f14c4c;   /* bright red     */
+    --ansi-10: #23d18b;   /* bright green   */
+    --ansi-11: #f5f543;   /* bright yellow  */
+    --ansi-12: #3b8eea;   /* bright blue    */
+    --ansi-13: #d670d6;   /* bright magenta */
+    --ansi-14: #29b8db;   /* bright cyan    */
+    --ansi-15: #ffffff;   /* bright white   */
+  }
+}
+
+/* ── Base resets ─────────────────────────────────────────────────────────── */
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    overflow: hidden; /* The app is a full-screen shell; let panes scroll */
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: 'rlig' 1, 'calt' 1;
+    -webkit-font-smoothing: antialiased;
+    /* Prevent macOS rubber-banding outside scroll containers */
+    overscroll-behavior: none;
+  }
+
+  /* Electron drag region for frameless / hiddenInset windows */
+  .titlebar-drag {
+    -webkit-app-region: drag;
+  }
+
+  .titlebar-no-drag {
+    -webkit-app-region: no-drag;
+  }
+}
+
+/* ── Terminal output area ────────────────────────────────────────────────── */
+@layer components {
+  .terminal-pane {
+    @apply font-mono text-sm leading-[1.4];
+    background-color: hsl(var(--terminal-bg));
+    color: hsl(var(--terminal-fg));
+    /* Crisp text rendering for monospace */
+    text-rendering: optimizeSpeed;
+    /* Always allow text selection in the output area */
+    user-select: text;
+    cursor: text;
+  }
+
+  .terminal-line {
+    @apply whitespace-pre-wrap break-words;
+    min-height: 1.4em; /* preserve blank lines */
+    padding: 0 0.5rem;
+  }
+
+  .terminal-line:last-child {
+    /* Extra bottom padding so last line is never clipped */
+    padding-bottom: 0.25rem;
+  }
+}
+
+/* ── GoldenLayout theme overrides ───────────────────────────────────────── */
+
+/* Root & content areas */
+.lm_goldenlayout,
+.lm_content {
+  background: hsl(224 71% 4%); /* --background */
+}
+
+/* Splitter handles */
+.lm_splitter {
+  background: hsl(215 28% 18%); /* --border */
+  transition: background 120ms;
+}
+.lm_splitter:hover,
+.lm_splitter.lm_dragging {
+  background: hsl(187 100% 42%); /* --primary cyan */
+}
+
+/* Tab header bar */
+.lm_header {
+  background: hsl(224 40% 7%); /* --card */
+  height: 2rem !important;
+}
+
+/* Individual tabs */
+.lm_tab {
+  display: inline-flex !important;
+  align-items: center;
+  background: hsl(224 40% 7%);
+  border: none !important;
+  color: hsl(215 20% 55%); /* --muted-foreground */
+  font-size: 0.75rem;
+  font-family: ui-monospace, monospace;
+  padding: 0 0.5rem 0 0.75rem;
+  height: 2rem;
+  margin: 0 !important;
+  border-radius: 0;
+  gap: 0;
+  transition: background 120ms, color 120ms;
+}
+
+.lm_tab:hover {
+  background: hsl(215 28% 16%); /* --secondary */
+  color: hsl(220 14% 91%); /* --foreground */
+}
+
+.lm_tab.lm_active {
+  background: hsl(224 71% 4%); /* --background — matches content area */
+  color: hsl(187 100% 42%);    /* --primary cyan */
+  border-top: 2px solid hsl(187 100% 42%) !important;
+  padding-top: 0;
+}
+
+/* Close button inside tab — GL renders an empty div; we supply the × via CSS */
+.lm_close_tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px !important;
+  height: 14px !important;
+  margin-left: 6px;
+  border-radius: 2px;
+  opacity: 0.5;
+  cursor: pointer;
+  transition: opacity 120ms, background 120ms;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+.lm_close_tab::after {
+  content: '×';
+  font-size: 14px;
+  line-height: 1;
+  color: hsl(220 14% 91%);
+  font-family: ui-monospace, monospace;
+}
+.lm_close_tab:hover {
+  opacity: 1;
+  background: hsl(0 84% 60% / 0.2);
+}
+
+/* Tab title text node wrapper */
+.lm_title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Tab controls (popout / maximise buttons) */
+.lm_controls > li {
+  opacity: 0.4;
+  transition: opacity 120ms;
+}
+.lm_controls > li:hover {
+  opacity: 0.9;
+}
+
+/* Stack (pane group) border */
+.lm_stack > .lm_header {
+  border-bottom: 1px solid hsl(215 28% 18%); /* --border */
+}
+
+/* Drop target highlight */
+.lm_dropTargetIndicator {
+  outline: 2px solid hsl(187 100% 42%); /* --primary */
+  outline-offset: -2px;
+  background: hsl(187 100% 42% / 0.08);
+}
+
+/* ── Scrollbar styling ───────────────────────────────────────────────────── */
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--border));
+    border-radius: 3px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground));
+  }
+}
