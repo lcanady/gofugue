@@ -2,6 +2,8 @@ package js_test
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,8 +16,8 @@ func newBridge(t *testing.T, echo func(string)) *scriptjs.Bridge {
 	t.Helper()
 	b := bus.New()
 	cb := script.Callbacks{
-		Echo: echo,
-		Send: func(world, text string) error { return nil },
+		Echo:            echo,
+		Send:            func(world, text string) error { return nil },
 		ForegroundWorld: func() string { return "test" },
 		Getvar:          func(name string) (string, bool) { return "", false },
 		Setvar:          func(name, value string) {},
@@ -158,5 +160,125 @@ func TestHookCallback(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("hook callback not called")
+	}
+}
+
+func TestEval_SendCallback(t *testing.T) {
+	var gotWorld, gotText string
+	b := bus.New()
+	cb := script.Callbacks{
+		Send: func(world, text string) error {
+			gotWorld = world
+			gotText = text
+			return nil
+		},
+	}
+	br := scriptjs.New(b, cb)
+	br.Start(context.Background())
+	defer br.Stop()
+
+	if _, err := br.Eval(`tf.send("myworld", "hello world")`); err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if gotWorld != "myworld" || gotText != "hello world" {
+		t.Errorf("Send got world=%q text=%q, want myworld and hello world", gotWorld, gotText)
+	}
+}
+
+func TestEval_SendCallback_Error(t *testing.T) {
+	b := bus.New()
+	cb := script.Callbacks{
+		Send: func(world, text string) error {
+			return fmt.Errorf("send error")
+		},
+	}
+	br := scriptjs.New(b, cb)
+	br.Start(context.Background())
+	defer br.Stop()
+
+	_, err := br.Eval(`tf.send("myworld", "hello world")`)
+	if err == nil {
+		t.Fatalf("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "send error") {
+		t.Errorf("expected error to contain 'send error', got %q", err.Error())
+	}
+}
+
+func TestEval_LogCallback(t *testing.T) {
+	ch := make(chan string, 1)
+	b := bus.New()
+	cb := script.Callbacks{
+		Echo: func(s string) { ch <- s },
+	}
+	br := scriptjs.New(b, cb)
+	br.Start(context.Background())
+	defer br.Stop()
+
+	if _, err := br.Eval(`tf.log("log message")`); err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	select {
+	case got := <-ch:
+		if got != "log message" {
+			t.Errorf("log got %q", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("echo/log callback not called")
+	}
+}
+
+func TestEval_WorldCallback(t *testing.T) {
+	b := bus.New()
+	cb := script.Callbacks{
+		ForegroundWorld: func() string { return "testworld" },
+	}
+	br := scriptjs.New(b, cb)
+	br.Start(context.Background())
+	defer br.Stop()
+
+	result, err := br.Eval(`tf.world()`)
+	if err != nil {
+		t.Fatalf("Eval error: %v", err)
+	}
+	if result != "testworld" {
+		t.Errorf("expected 'testworld', got %q", result)
+	}
+}
+
+func TestEval_NilCallbacks(t *testing.T) {
+	b := bus.New()
+	cb := script.Callbacks{} // All nil
+	br := scriptjs.New(b, cb)
+	br.Start(context.Background())
+	defer br.Stop()
+
+	// send
+	if _, err := br.Eval(`tf.send("w", "t")`); err != nil {
+		t.Errorf("send with nil callback returned error: %v", err)
+	}
+	// echo/log
+	if _, err := br.Eval(`tf.echo("t"); tf.log("t")`); err != nil {
+		t.Errorf("echo/log with nil callback returned error: %v", err)
+	}
+	// world
+	res, err := br.Eval(`tf.world()`)
+	if err != nil {
+		t.Errorf("world with nil callback returned error: %v", err)
+	}
+	if res != "" {
+		t.Errorf("expected empty string for nil world callback, got %q", res)
+	}
+	// getvar
+	res, err = br.Eval(`tf.getvar("x")`)
+	if err != nil {
+		t.Errorf("getvar with nil callback returned error: %v", err)
+	}
+	if res != "undefined" {
+		t.Errorf("expected 'undefined', got %q", res)
+	}
+	// setvar
+	if _, err := br.Eval(`tf.setvar("x", "y")`); err != nil {
+		t.Errorf("setvar with nil callback returned error: %v", err)
 	}
 }
