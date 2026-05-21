@@ -461,7 +461,9 @@ func (m *Manager) SaveTOML(path string) error {
 	if err := enc.Encode(map[string]any{"worlds": worlds}); err != nil {
 		return fmt.Errorf("saveworld: encode: %w", err)
 	}
-	return os.WriteFile(path, buf.Bytes(), 0o644)
+	// 0o600 — world configs may contain plaintext passwords or
+	// password_cmd lines that disclose a user's secret-manager workflow.
+	return os.WriteFile(path, buf.Bytes(), 0o600)
 }
 
 // telnetEnabled returns whether Telnet FSM should be active for a world.

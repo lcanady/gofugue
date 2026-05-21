@@ -471,7 +471,7 @@ func runTUI(
 	if logDir, err := os.UserCacheDir(); err == nil {
 		logPath := filepath.Join(logDir, "gofugue", "gofugue.log")
 		_ = os.MkdirAll(filepath.Dir(logPath), 0o750)
-		if lf, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o640); err == nil {
+		if lf, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); err == nil {
 			logWriter = lf
 			defer lf.Close()
 		}

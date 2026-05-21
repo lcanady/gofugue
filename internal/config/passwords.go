@@ -56,14 +56,24 @@ func LoadWithWarnings(path string) (Config, []string, error) {
 	var warnings []string
 	if runtime.GOOS != "windows" {
 		if st, err := os.Stat(path); err == nil {
-			if st.Mode().Perm()&0o077 != 0 {
-				for name, wc := range cfg.Worlds {
-					if wc.Password != "" || wc.Pass != "" {
-						warnings = append(warnings,
-							fmt.Sprintf("world %q has a plaintext password in %s (mode %#o); "+
-								"tighten with `chmod 600 %s` or migrate to `password_cmd`",
-								name, path, st.Mode().Perm(), path))
-					}
+			perm := st.Mode().Perm()
+			readableByOthers := perm&0o077 != 0
+			writableByOthers := perm&0o022 != 0
+			for name, wc := range cfg.Worlds {
+				if readableByOthers && (wc.Password != "" || wc.Pass != "") {
+					warnings = append(warnings,
+						fmt.Sprintf("world %q has a plaintext password in %s (mode %#o); "+
+							"tighten with `chmod 600 %s` or migrate to `password_cmd`",
+							name, path, perm, path))
+				}
+				// password_cmd in a group/world-writable file is RCE on
+				// every startup: an attacker who appends a line to
+				// config.toml runs arbitrary commands as the user.
+				if writableByOthers && wc.PasswordCmd != "" {
+					warnings = append(warnings,
+						fmt.Sprintf("world %q uses password_cmd, but %s is writable by others (mode %#o) — "+
+							"this is a startup-RCE risk. Run `chmod 600 %s` immediately.",
+							name, path, perm, path))
 				}
 			}
 		}

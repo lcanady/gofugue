@@ -814,6 +814,9 @@ func cmdSaveWorld(ctx *Context, args string) error {
 	if path == "" {
 		path = "worlds.toml"
 	}
+	if err := validateScriptPath(path, ".toml"); err != nil {
+		return fmt.Errorf("/saveworld: %w", err)
+	}
 	if ctx.SaveWorlds == nil {
 		return fmt.Errorf("/saveworld: not available")
 	}

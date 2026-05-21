@@ -40,3 +40,25 @@ func TestValidateScriptPath_NoExtList_StillBlocksNUL(t *testing.T) {
 		t.Error("NUL byte must always be rejected")
 	}
 }
+
+// TestValidateScriptPath_RejectsParentTraversal — security: a trigger or
+// remote MUD that can inject /save or /load commands must not be able to
+// write/read outside the user's current working area via `..` segments.
+// Extension allowlists alone don't help: `../../tmp/pwn.json` is still
+// a "valid" .json extension.
+func TestValidateScriptPath_RejectsParentTraversal(t *testing.T) {
+	cases := []struct {
+		path string
+		exts []string
+	}{
+		{"../pwn.json", []string{".json"}},
+		{"../../etc/passwd.tf", []string{".tf"}},
+		{"scripts/../../../secret.js", []string{".js"}},
+		{"./foo/../../../bar.gf", []string{".gf"}},
+	}
+	for _, tc := range cases {
+		if err := validateScriptPath(tc.path, tc.exts...); err == nil {
+			t.Errorf("validateScriptPath(%q) = nil, want traversal rejection", tc.path)
+		}
+	}
+}

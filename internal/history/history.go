@@ -145,7 +145,8 @@ func (b *Buffer) StartLog(path string) error {
 	if b.logFile != nil {
 		b.logFile.Close()
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	// 0o600 — world logs hold private channel chatter and login sequences.
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}
