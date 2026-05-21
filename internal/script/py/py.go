@@ -32,9 +32,12 @@ import (
 	"regexp"
 	"sync"
 
+	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/kumakun/gofugue/internal/bus"
 	"github.com/kumakun/gofugue/internal/script"
 )
+
+var reCache, _ = lru.New[string, *regexp.Regexp](1000)
 
 // pyTrigger tracks a pattern registered by Python.
 type pyTrigger struct {
@@ -281,11 +284,20 @@ func (br *Bridge) dispatch(method string, msg map[string]json.RawMessage) {
 		}
 	case "def":
 		name, pattern := str("name"), str("pattern")
-		re, err := regexp.Compile(pattern)
-		if err != nil {
-			slog.Warn("py: def bad pattern", "name", name, "err", err)
-			return
+
+		var re *regexp.Regexp
+		if v, ok := reCache.Get(pattern); ok {
+			re = v
+		} else {
+			var err error
+			re, err = regexp.Compile(pattern)
+			if err != nil {
+				slog.Warn("py: def bad pattern", "name", name, "err", err)
+				return
+			}
+			reCache.Add(pattern, re)
 		}
+
 		br.mu.Lock()
 		br.removeTriggerLocked(name)
 		br.triggers = append(br.triggers, &pyTrigger{name: name, re: re})
