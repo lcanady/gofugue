@@ -4,8 +4,9 @@
 package macro
 
 import (
+	"crypto/rand"
 	"fmt"
-	"math/rand"
+	"math/big"
 	"regexp"
 	"sort"
 	"strings"
@@ -208,8 +209,11 @@ func (e *Engine) FireTriggers(world, line string) TriggerResult {
 		}
 
 		// Probability check (0 = always fire).
-		if m.Prob > 0 && rand.Intn(100) >= m.Prob {
-			continue
+		if m.Prob > 0 {
+			v, err := rand.Int(rand.Reader, big.NewInt(100))
+			if err == nil && int(v.Int64()) >= m.Prob {
+				continue
+			}
 		}
 
 		sub := m.re.FindStringSubmatch(line)
