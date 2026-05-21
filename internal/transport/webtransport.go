@@ -16,6 +16,8 @@ type wtTransport struct {
 }
 
 func (t *wtTransport) Dial(ctx context.Context) (io.ReadWriteCloser, error) {
+	ctx, cancel := context.WithTimeout(ctx, DialTimeout)
+	defer cancel()
 	/* #nosec G402 */
 	tlsCfg := &tls.Config{
 		InsecureSkipVerify: t.skipVerify,

@@ -251,10 +251,16 @@ func cmdConnect(ctx *Context, args string) error {
 	if name == "" {
 		name = worldNameFromURL(url)
 	}
-	if err := ctx.Connect(name, url); err != nil {
-		return fmt.Errorf("/connect %s: %w", name, err)
-	}
 	ctx.output(fmt.Sprintf("Connecting to %s (%s)…", name, url))
+	// Dial off-dispatcher: transport.Dial blocks up to DialTimeout (10s) on
+	// unreachable hosts. Running it inline froze the entire TUI/IPC dispatcher
+	// goroutine. The Output callback publishes via the bus, which is safe
+	// from any goroutine.
+	go func() {
+		if err := ctx.Connect(name, url); err != nil {
+			ctx.output(fmt.Sprintf("Connection error: /connect %s: %s", name, err.Error()))
+		}
+	}()
 	return nil
 }
 
