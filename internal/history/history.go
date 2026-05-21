@@ -4,12 +4,23 @@ package history
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"sync"
 	"time"
 
 	"github.com/kumakun/gofugue/internal/bus"
+)
+
+// Log-flush coalescing thresholds. Flushing on every Append turns each MUD
+// line into a per-line fsync barrier on the worldLine goroutine, which on a
+// slow disk visibly stutters output. We instead flush at most every
+// flushInterval or after flushLineLimit lines, whichever comes first, and
+// always on StopLog.
+const (
+	flushInterval  = 100 * time.Millisecond
+	flushLineLimit = 64
 )
 
 var (
@@ -69,8 +80,24 @@ type Buffer struct {
 	count    int
 	capacity int
 
-	logFile *os.File
-	logBuf  *bufio.Writer
+	logFile         *os.File
+	logBuf          *bufio.Writer
+	lastFlush       time.Time
+	linesSinceFlush int
+}
+
+// startLogWriter is an internal seam for tests: it attaches an arbitrary
+// io.Writer as the log sink so the test can count underlying Write calls.
+func (b *Buffer) startLogWriter(w io.Writer) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.logFile != nil {
+		b.logFile.Close()
+		b.logFile = nil
+	}
+	b.logBuf = bufio.NewWriter(w)
+	b.lastFlush = time.Now()
+	b.linesSinceFlush = 0
 }
 
 // New returns a Buffer with the given capacity.
@@ -96,7 +123,12 @@ func (b *Buffer) Append(l Line) {
 
 	if b.logBuf != nil && !l.Gagged {
 		fmt.Fprintf(b.logBuf, "[%s] %s\n", l.Timestamp.Format("15:04:05"), l.Text)
-		b.logBuf.Flush()
+		b.linesSinceFlush++
+		if b.linesSinceFlush >= flushLineLimit || time.Since(b.lastFlush) >= flushInterval {
+			b.logBuf.Flush()
+			b.lastFlush = time.Now()
+			b.linesSinceFlush = 0
+		}
 	}
 }
 
@@ -152,6 +184,8 @@ func (b *Buffer) StartLog(path string) error {
 	}
 	b.logFile = f
 	b.logBuf = bufio.NewWriter(f)
+	b.lastFlush = time.Now()
+	b.linesSinceFlush = 0
 	return nil
 }
 
@@ -161,12 +195,14 @@ func (b *Buffer) StopLog() {
 	defer b.mu.Unlock()
 	if b.logBuf != nil {
 		b.logBuf.Flush()
+		b.linesSinceFlush = 0
+		b.lastFlush = time.Now()
 	}
 	if b.logFile != nil {
 		b.logFile.Close()
 		b.logFile = nil
-		b.logBuf = nil
 	}
+	b.logBuf = nil
 }
 
 func containsStr(s, sub string) bool {

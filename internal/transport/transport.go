@@ -11,7 +11,14 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"time"
 )
+
+// DialTimeout caps connection-establishment time across all transports.
+// Without it, Go's net.Dialer falls back to the OS TCP SYN retry budget,
+// which is roughly 75 seconds on Linux/macOS — long enough to freeze the
+// dispatcher goroutine when a user mistypes a hostname or port.
+const DialTimeout = 10 * time.Second
 
 // verifySelfSigned ignores x509.UnknownAuthorityError to permit self-signed certificates,
 // but continues to verify hostname match and certificate expiration.

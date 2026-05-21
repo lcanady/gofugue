@@ -14,6 +14,8 @@ type tcpTransport struct {
 }
 
 func (t *tcpTransport) Dial(ctx context.Context) (io.ReadWriteCloser, error) {
+	ctx, cancel := context.WithTimeout(ctx, DialTimeout)
+	defer cancel()
 	d := &net.Dialer{}
 	conn, err := d.DialContext(ctx, "tcp", t.host)
 	if err != nil {

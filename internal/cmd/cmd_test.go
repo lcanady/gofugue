@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/kumakun/gofugue/internal/cmd"
 	"github.com/kumakun/gofugue/internal/macro"
@@ -181,18 +183,30 @@ func TestDispatcher_Send_NilCallback_ReturnsError(t *testing.T) {
 
 func TestDispatcher_Connect_CallsCallback(t *testing.T) {
 	d := cmd.New()
+	var mu sync.Mutex
 	var connectName, connectURL string
+	done := make(chan struct{})
 	var output []string
 	ctx := makeCtx(&output, nil)
 	ctx.Connect = func(name, url string) error {
+		mu.Lock()
 		connectName = name
 		connectURL = url
+		mu.Unlock()
+		close(done)
 		return nil
 	}
 
 	if err := d.Dispatch(ctx, "/connect mud://example.com:4000 myworld"); err != nil {
 		t.Fatalf("/connect: %v", err)
 	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Connect callback never fired")
+	}
+	mu.Lock()
+	defer mu.Unlock()
 	if connectName != "myworld" {
 		t.Errorf("connect name = %q, want %q", connectName, "myworld")
 	}
@@ -203,14 +217,29 @@ func TestDispatcher_Connect_CallsCallback(t *testing.T) {
 
 func TestDispatcher_Connect_AutoName(t *testing.T) {
 	d := cmd.New()
+	var mu sync.Mutex
 	var connectName string
+	done := make(chan struct{})
 	var output []string
 	ctx := makeCtx(&output, nil)
-	ctx.Connect = func(name, _ string) error { connectName = name; return nil }
+	ctx.Connect = func(name, _ string) error {
+		mu.Lock()
+		connectName = name
+		mu.Unlock()
+		close(done)
+		return nil
+	}
 
 	if err := d.Dispatch(ctx, "/connect mud://example.com:4000"); err != nil {
 		t.Fatalf("/connect: %v", err)
 	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Connect callback never fired")
+	}
+	mu.Lock()
+	defer mu.Unlock()
 	if connectName != "example.com" {
 		t.Errorf("auto-derived name = %q, want %q", connectName, "example.com")
 	}
@@ -228,11 +257,44 @@ func TestDispatcher_Connect_NoArgs_ReturnsError(t *testing.T) {
 
 func TestDispatcher_Connect_PropagatesError(t *testing.T) {
 	d := cmd.New()
-	ctx := makeCtx(nil, nil)
+	var output []string
+	var mu sync.Mutex
+	done := make(chan struct{})
+	ctx := &cmd.Context{
+		Ctx: context.Background(),
+		Output: func(s string) {
+			mu.Lock()
+			output = append(output, s)
+			if strings.Contains(s, "Connection error") {
+				select {
+				case <-done:
+				default:
+					close(done)
+				}
+			}
+			mu.Unlock()
+		},
+	}
 	ctx.Connect = func(_, _ string) error { return fmt.Errorf("refused") }
-	err := d.Dispatch(ctx, "/connect mud://x.com myworld")
-	if err == nil || !strings.Contains(err.Error(), "refused") {
-		t.Errorf("expected error containing 'refused', got: %v", err)
+	if err := d.Dispatch(ctx, "/connect mud://x.com myworld"); err != nil {
+		t.Fatalf("/connect dispatch should not return sync error: %v", err)
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected Connection error output, never received")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	found := false
+	for _, line := range output {
+		if strings.Contains(line, "refused") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected output containing 'refused', got: %v", output)
 	}
 }
 
