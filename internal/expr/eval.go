@@ -8,7 +8,19 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	lru "github.com/hashicorp/golang-lru/v2"
 )
+
+var reCache *lru.Cache[string, *regexp.Regexp]
+
+func init() {
+	var err error
+	reCache, err = lru.New[string, *regexp.Regexp](128)
+	if err != nil {
+		panic(fmt.Sprintf("failed to initialize regex lru cache: %v", err))
+	}
+}
 
 // Eval evaluates a single expression string (the content inside {}).
 // Values are represented as strings internally; numeric operations parse
@@ -744,9 +756,15 @@ func (p *parser) callFunc(name string) (string, error) {
 		if len(args) != 2 {
 			return "", fmt.Errorf("regmatch: expected 2 args (pattern, string)")
 		}
-		re, err := regexp.Compile(args[0])
-		if err != nil {
-			return "", fmt.Errorf("regmatch: %w", err)
+		var re *regexp.Regexp
+		if cachedRe, ok := reCache.Get(args[0]); ok {
+			re = cachedRe
+		} else {
+			re, err = regexp.Compile(args[0])
+			if err != nil {
+				return "", fmt.Errorf("regmatch: %w", err)
+			}
+			reCache.Add(args[0], re)
 		}
 		subs := re.FindStringSubmatch(args[1])
 		if subs == nil {
@@ -910,4 +928,3 @@ func max(a, b int) int {
 	}
 	return b
 }
-
