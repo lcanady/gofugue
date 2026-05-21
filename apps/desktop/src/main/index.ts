@@ -129,13 +129,8 @@ function createWindow(): BrowserWindow {
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     backgroundColor: '#080d1a', // matches --background token
     webPreferences: {
-      preload: join(__dirname, '../preload/index.mjs'),
-      // sandbox: false is required because electron-vite's preload bundle uses
-      // ESM, which Chromium's sandboxed renderer cannot load without an explicit
-      // sandbox: true + CommonJS-compiled preload. contextIsolation: true is the
-      // primary defence — the renderer JS cannot access Node APIs directly.
-      // TODO: migrate preload to CJS and re-enable sandbox: true.
-      sandbox: false,
+      preload: join(__dirname, '../preload/index.cjs'),
+      sandbox: true,
       contextIsolation: true,
       webviewTag: true,
     },
