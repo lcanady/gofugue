@@ -74,3 +74,15 @@ func TestAttrToStyle(t *testing.T) {
 		})
 	}
 }
+
+func TestLogicalLine_plain(t *testing.T) {
+	ll := LogicalLine{
+		Spans: []Span{
+			{Text: "first part ", Attrs: bus.LineAttrs{}},
+			{Text: "second part", Attrs: bus.LineAttrs{}},
+		},
+	}
+	if got := ll.plain(); got != "first part second part" {
+		t.Errorf("expected %q, got %q", "first part second part", got)
+	}
+}

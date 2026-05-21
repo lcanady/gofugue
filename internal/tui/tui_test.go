@@ -40,6 +40,19 @@ func screenText(s tcell.SimulationScreen) []string {
 	return rows
 }
 
+func TestMakeLogicalLine(t *testing.T) {
+	attrs := bus.LineAttrs{FG: 5, BG: 2, Bold: true}
+	text := "test string"
+	ll := tui.MakeLogicalLine(text, attrs)
+
+	if len(ll.Spans) != 1 {
+		t.Fatalf("expected 1 span, got %d", len(ll.Spans))
+	}
+	if ll.Spans[0].Text != text || ll.Spans[0].Attrs != attrs {
+		t.Errorf("MakeLogicalLine span mismatch: got %v, expected %v with text %q", ll.Spans[0].Attrs, attrs, text)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // App.RunWithScreen — event loop tests
 // ---------------------------------------------------------------------------
