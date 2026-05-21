@@ -279,3 +279,31 @@ func TestBuffer_StopLog_FlushesBuffered(t *testing.T) {
 		t.Error("log should contain 'before stop' after StopLog")
 	}
 }
+
+func BenchmarkBuffer_Search(b *testing.B) {
+	buf := history.New(1000)
+	for i := 0; i < 1000; i++ {
+		buf.Append(history.Line{
+			Text:      "this is a sample line that might contain the word dragon or goblin or maybe something else entirely",
+			Timestamp: time.Now(),
+		})
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		buf.Search("dragon")
+	}
+}
+
+func BenchmarkBuffer_Search_Regex(b *testing.B) {
+	buf := history.New(1000)
+	for i := 0; i < 1000; i++ {
+		buf.Append(history.Line{
+			Text:      "this is a sample line that might contain the word dragon or goblin or maybe something else entirely",
+			Timestamp: time.Now(),
+		})
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		buf.Search("dragon|goblin")
+	}
+}

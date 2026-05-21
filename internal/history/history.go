@@ -12,6 +12,47 @@ import (
 	"github.com/kumakun/gofugue/internal/bus"
 )
 
+var (
+	regexCacheMu sync.Mutex
+	regexCache   [16]struct {
+		pattern string
+		re      *regexp.Regexp
+		err     error
+		valid   bool
+	}
+)
+
+func compileSearchPattern(pattern string) (*regexp.Regexp, error) {
+	regexCacheMu.Lock()
+	for i := 0; i < len(regexCache); i++ {
+		if regexCache[i].valid && regexCache[i].pattern == pattern {
+			re, err := regexCache[i].re, regexCache[i].err
+			// Move to front (LRU)
+			if i > 0 {
+				entry := regexCache[i]
+				copy(regexCache[1:i+1], regexCache[0:i])
+				regexCache[0] = entry
+			}
+			regexCacheMu.Unlock()
+			return re, err
+		}
+	}
+	regexCacheMu.Unlock()
+
+	re, err := regexp.Compile(pattern)
+
+	regexCacheMu.Lock()
+	// move everything down by 1
+	copy(regexCache[1:], regexCache[0:len(regexCache)-1])
+	regexCache[0].pattern = pattern
+	regexCache[0].re = re
+	regexCache[0].err = err
+	regexCache[0].valid = true
+	regexCacheMu.Unlock()
+
+	return re, err
+}
+
 // Line is a single entry in the scrollback buffer.
 type Line struct {
 	Text      string
@@ -80,7 +121,7 @@ func (b *Buffer) Tail(n int) []Line {
 func (b *Buffer) Search(pattern string) []Line {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	re, reErr := regexp.Compile(pattern)
+	re, reErr := compileSearchPattern(pattern)
 	var out []Line
 	for i := 0; i < b.count; i++ {
 		l := b.lines[(b.head+i)%b.capacity]
