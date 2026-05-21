@@ -117,13 +117,18 @@ func Load(path string) (Config, error) {
 	return cfg, nil
 }
 
-// DefaultPath returns the platform default config file path.
-func DefaultPath() string {
+// ConfigDir returns the base directory for GoFugue configuration and scripts.
+func ConfigDir() string {
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		return filepath.Join(xdg, "gofugue", "config.toml")
+		return filepath.Join(xdg, "gofugue")
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "gofugue", "config.toml")
+	return filepath.Join(home, ".config", "gofugue")
+}
+
+// DefaultPath returns the platform default config file path.
+func DefaultPath() string {
+	return filepath.Join(ConfigDir(), "config.toml")
 }
 
 // DefaultSocketPath returns the default Unix domain socket path.

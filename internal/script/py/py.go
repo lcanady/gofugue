@@ -28,11 +28,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 
 	"github.com/kumakun/gofugue/internal/bus"
+	"github.com/kumakun/gofugue/internal/config"
 	"github.com/kumakun/gofugue/internal/script"
 )
 
@@ -63,6 +67,65 @@ func New(b *bus.Bus, cb script.Callbacks, bridgePy string) *Bridge {
 // Load starts the Python subprocess. If already running, it is killed and
 // restarted (hot-reload) so the new script takes effect immediately.
 func (br *Bridge) Load(ctx context.Context, scriptPath string) error {
+	cleanPath, err := filepath.Abs(filepath.Clean(scriptPath))
+	if err != nil {
+		return fmt.Errorf("py: invalid script path: %w", err)
+	}
+
+	info, err := os.Stat(cleanPath)
+	if err != nil {
+		return fmt.Errorf("py: script path not found: %w", err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("py: script path is a directory")
+	}
+
+	// Resolve symlinks to prevent bypasses.
+	realPath, err := filepath.EvalSymlinks(cleanPath)
+	if err != nil {
+		return fmt.Errorf("py: invalid script path (symlink eval): %w", err)
+	}
+
+	// Restrict execution directory to prevent arbitrary file execution.
+	// Only allow scripts from the GoFugue config directory or the current
+	// working directory.
+	configDir, _ := filepath.Abs(config.ConfigDir())
+	cwd, _ := os.Getwd()
+	if cwd != "" {
+		cwd, _ = filepath.Abs(cwd)
+	}
+
+	isAllowed := false
+
+	// Helper to check if a path is inside a base directory safely.
+	isSubDir := func(base string) bool {
+		if base == "" {
+			return false
+		}
+		realBase, err := filepath.EvalSymlinks(base)
+		if err != nil {
+			realBase = base // Fallback if eval fails, though base should exist
+		}
+		// Ensure base has trailing separator for safe prefix check.
+		safeBase := realBase
+		if !strings.HasSuffix(safeBase, string(filepath.Separator)) {
+			safeBase += string(filepath.Separator)
+		}
+		// Also allow if it's the exact directory (though normally it's a file inside it).
+		if realPath == realBase || strings.HasPrefix(realPath, safeBase) {
+			return true
+		}
+		return false
+	}
+
+	if isSubDir(configDir) || isSubDir(cwd) {
+		isAllowed = true
+	}
+
+	if !isAllowed {
+		return fmt.Errorf("py: script path is outside of allowed execution directories")
+	}
+
 	br.mu.Lock()
 	// Kill existing subprocess if running.
 	if br.cmd != nil {
@@ -72,7 +135,7 @@ func (br *Bridge) Load(ctx context.Context, scriptPath string) error {
 	}
 	br.mu.Unlock()
 
-	cmd := exec.CommandContext(ctx, "python3", "-u", br.bridgePy, scriptPath)
+	cmd := exec.CommandContext(ctx, "python3", "-u", br.bridgePy, cleanPath)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return fmt.Errorf("py: stdin pipe: %w", err)
