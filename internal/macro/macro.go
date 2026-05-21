@@ -4,8 +4,9 @@
 package macro
 
 import (
+	"crypto/rand"
 	"fmt"
-	"math/rand"
+	"math/big"
 	"regexp"
 	"sort"
 	"strings"
@@ -16,13 +17,13 @@ import (
 type Type int
 
 const (
-	TypeTrigger   Type = iota // fires on matching world output
-	TypeAlias                 // fires on matching user input (command prefix)
-	TypeKeybind               // fires on a key sequence
-	TypeHook                  // fires on a named lifecycle event
-	TypeGag                   // suppresses matching lines (no body executed)
-	TypeHilite                // highlights matching lines (body = attribute spec)
-	TypeSubstitute            // replaces matching lines (body = replacement text)
+	TypeTrigger    Type = iota // fires on matching world output
+	TypeAlias                  // fires on matching user input (command prefix)
+	TypeKeybind                // fires on a key sequence
+	TypeHook                   // fires on a named lifecycle event
+	TypeGag                    // suppresses matching lines (no body executed)
+	TypeHilite                 // highlights matching lines (body = attribute spec)
+	TypeSubstitute             // replaces matching lines (body = replacement text)
 )
 
 // MatchMode controls how a trigger pattern is matched.
@@ -30,9 +31,9 @@ type MatchMode int
 
 const (
 	MatchRegexp MatchMode = iota // full regexp (default)
-	MatchGlob                   // shell glob: * → .*, ? → .
-	MatchSubstr                 // literal substring
-	MatchSimple                 // alias for MatchSubstr
+	MatchGlob                    // shell glob: * → .*, ? → .
+	MatchSubstr                  // literal substring
+	MatchSimple                  // alias for MatchSubstr
 )
 
 // Macro is a single named trigger/alias/keybind/hook definition.
@@ -208,8 +209,11 @@ func (e *Engine) FireTriggers(world, line string) TriggerResult {
 		}
 
 		// Probability check (0 = always fire).
-		if m.Prob > 0 && rand.Intn(100) >= m.Prob {
-			continue
+		if m.Prob > 0 {
+			val, err := rand.Int(rand.Reader, big.NewInt(100))
+			if err == nil && int(val.Int64()) >= m.Prob {
+				continue
+			}
 		}
 
 		sub := m.re.FindStringSubmatch(line)

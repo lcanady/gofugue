@@ -1,9 +1,10 @@
 package expr
 
 import (
+	"crypto/rand"
 	"fmt"
 	"math"
-	"math/rand"
+	"math/big"
 	"regexp"
 	"strconv"
 	"strings"
@@ -626,7 +627,11 @@ func (p *parser) callFunc(name string) (string, error) {
 		if n <= 0 {
 			n = 1
 		}
-		return fmt.Sprintf("%d", rand.Intn(n)), nil
+		val, err := rand.Int(rand.Reader, big.NewInt(int64(n)))
+		if err != nil {
+			return "0", nil // fallback if RNG fails
+		}
+		return fmt.Sprintf("%d", val.Int64()), nil
 
 	case "abs":
 		args, err := p.parseArgs()
