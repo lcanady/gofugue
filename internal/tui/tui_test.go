@@ -625,6 +625,26 @@ func TestStatusBar_Resize_DoesNotPanic(t *testing.T) {
 // InputBar tests
 // ---------------------------------------------------------------------------
 
+func TestNewInputBar(t *testing.T) {
+	ib := tui.NewInputBar(40)
+	if ib == nil {
+		t.Fatal("expected NewInputBar to return non-nil InputBar")
+	}
+	if ib.Editor() == nil {
+		t.Error("expected NewInputBar to initialize a non-nil Editor")
+	}
+
+	// Verify the default prompt by drawing it.
+	s := simScreen(t, 40, 3)
+	ib.Draw(s, 2)
+	s.Show()
+
+	rows := screenText(s)
+	if !strings.Contains(rows[2], "> ") {
+		t.Errorf("expected default prompt '> ' to be drawn, got %q", rows[2])
+	}
+}
+
 func TestInputBar_ShowsText(t *testing.T) {
 	s := simScreen(t, 40, 3)
 	ib := tui.NewInputBar(40)
