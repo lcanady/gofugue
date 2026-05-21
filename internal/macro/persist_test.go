@@ -120,8 +120,12 @@ func TestSaveFile_AtomicWrite_TempFileCleanedUp(t *testing.T) {
 	e.SaveFile(path) //nolint:errcheck
 
 	// The .tmp file must not linger after a successful save.
-	if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {
-		t.Error("temp file should not exist after successful save")
+	matches, err := filepath.Glob(filepath.Join(dir, "*.tmp"))
+	if err != nil {
+		t.Fatalf("failed to glob for temp files: %v", err)
+	}
+	if len(matches) > 0 {
+		t.Errorf("temp file should not exist after successful save, found: %v", matches)
 	}
 }
 

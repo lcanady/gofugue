@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 )
 
@@ -43,14 +44,35 @@ func (e *Engine) SaveFile(path string) error {
 	}
 	data = append(data, '\n')
 
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return fmt.Errorf("macro save: write: %w", err)
+	dir := filepath.Dir(path)
+	base := filepath.Base(path)
+
+	f, err := os.CreateTemp(dir, base+".*.tmp")
+	if err != nil {
+		return fmt.Errorf("macro save: create temp: %w", err)
 	}
+	tmp := f.Name()
+
+	closed := false
+	defer func() {
+		if !closed {
+			f.Close()
+		}
+		os.Remove(tmp) // Clean up the temp file if it wasn't successfully renamed
+	}()
+
+	if _, err := f.Write(data); err != nil {
+		return fmt.Errorf("macro save: write temp: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("macro save: close temp: %w", err)
+	}
+	closed = true
+
 	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp) //nolint:errcheck
 		return fmt.Errorf("macro save: rename: %w", err)
 	}
+
 	return nil
 }
 
