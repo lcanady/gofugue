@@ -12,6 +12,7 @@ import (
 type OutputPane struct {
 	mu       sync.Mutex
 	lines    []LogicalLine // all received logical lines
+	wrapped  [][]physRow   // cached wrapped rows per logical line; nil = not yet wrapped
 	scroll   int           // rows scrolled up from bottom (0 = live view)
 	width    int           // current column width for wrapping
 	height   int           // current row height of the pane
@@ -35,12 +36,25 @@ func (p *OutputPane) Append(l LogicalLine) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.lines = append(p.lines, l)
+	// Wrap eagerly only if we know our width; otherwise leave nil and let
+	// Draw lazily compute it once geometry is known.
+	if p.width > 0 && !l.Gagged {
+		p.wrapped = append(p.wrapped, p.wrapLine(l))
+	} else {
+		p.wrapped = append(p.wrapped, nil)
+	}
 }
 
 // Resize updates the pane dimensions. Called on terminal resize.
 func (p *OutputPane) Resize(width, height int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if width != p.width {
+		// Invalidate all cached wraps; Draw will recompute lazily.
+		for i := range p.wrapped {
+			p.wrapped[i] = nil
+		}
+	}
 	p.width = width
 	p.height = height
 }
@@ -128,13 +142,24 @@ type physRow []physCell
 
 // wrap converts all logical lines (with their spans) into physical rows
 // of width p.width, respecting Unicode grapheme clusters and wide chars.
+// Results are memoized per logical line in p.wrapped; only entries with a
+// nil cache slot are recomputed.
 func (p *OutputPane) wrap() []physRow {
+	// Ensure cache slice tracks the lines slice.
+	if len(p.wrapped) != len(p.lines) {
+		nw := make([][]physRow, len(p.lines))
+		copy(nw, p.wrapped)
+		p.wrapped = nw
+	}
 	var rows []physRow
-	for _, ll := range p.lines {
+	for i, ll := range p.lines {
 		if ll.Gagged {
 			continue
 		}
-		rows = append(rows, p.wrapLine(ll)...)
+		if p.wrapped[i] == nil {
+			p.wrapped[i] = p.wrapLine(ll)
+		}
+		rows = append(rows, p.wrapped[i]...)
 	}
 	return rows
 }

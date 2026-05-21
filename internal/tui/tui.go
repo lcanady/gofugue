@@ -19,6 +19,9 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/kumakun/gofugue/internal/bus"
@@ -55,6 +58,13 @@ type App struct {
 
 	// completionSource returns candidates given a prefix for tab completion.
 	completionSource func(prefix string) []string
+
+	// completionGen is incremented each Tab press; goroutines compare this
+	// to their captured value before applying results, so a slow source
+	// never overrides a newer keypress.
+	completionGen     atomic.Uint64
+	completionTimeout time.Duration // 0 = use default
+	completionMu      sync.Mutex    // serialises late-result application
 }
 
 // New creates a TUI App backed by the given event bus.
@@ -347,20 +357,63 @@ func (a *App) handleComplete() {
 	if text == "" {
 		return
 	}
+	if a.completionSource == nil {
+		return
+	}
 
-	var candidates []string
-	if a.completionSource != nil {
-		candidates = a.completionSource(text)
+	// Increment generation so any in-flight goroutine is invalidated.
+	gen := a.completionGen.Add(1)
+	timeout := a.completionTimeout
+	if timeout == 0 {
+		timeout = 50 * time.Millisecond
+	}
+
+	type result struct {
+		candidates []string
+	}
+	resCh := make(chan result, 1)
+	src := a.completionSource
+	go func() {
+		c := src(text)
+		resCh <- result{candidates: c}
+	}()
+
+	select {
+	case r := <-resCh:
+		a.applyCompletion(ed, text, r.candidates, gen)
+	case <-time.After(timeout):
+		// Spawn a watcher that applies late results iff still current.
+		go func() {
+			r := <-resCh
+			a.completionMu.Lock()
+			defer a.completionMu.Unlock()
+			if a.completionGen.Load() != gen {
+				return
+			}
+			// Only apply if the editor still holds the same prefix.
+			if a.input.Editor().Text() != text {
+				return
+			}
+			a.applyCompletion(ed, text, r.candidates, gen)
+			a.draw()
+		}()
+	}
+}
+
+// applyCompletion mutates the editor / output for a completion result, but
+// only if `gen` is still the most recent Tab generation. Caller is on the
+// event-loop goroutine OR holds completionMu.
+func (a *App) applyCompletion(ed *keyboard.LineEditor, prefix string, candidates []string, gen uint64) {
+	if a.completionGen.Load() != gen {
+		return
 	}
 	if len(candidates) == 0 {
 		return
 	}
 	if len(candidates) == 1 {
-		// Unique match — complete in place.
 		replaceEditorText(ed, candidates[0])
 		return
 	}
-	// Multiple matches — show them in output.
 	a.output.Append(LogicalLine{Spans: []Span{{
 		Text:  strings.Join(candidates, "  "),
 		Attrs: bus.LineAttrs{FG: 6, BG: -1}, // cyan
