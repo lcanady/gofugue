@@ -538,6 +538,44 @@ func TestOutputPane_Empty_DrawDoesNotPanic(t *testing.T) {
 // StatusBar tests
 // ---------------------------------------------------------------------------
 
+func TestNewStatusBar(t *testing.T) {
+	sb := tui.NewStatusBar(80)
+	if sb == nil {
+		t.Fatal("NewStatusBar returned nil")
+	}
+	s := simScreen(t, 80, 5)
+	sb.Draw(s, 1)
+	s.Show()
+
+	rows := screenText(s)
+	// Status bar draws on rows y=1, y=2, y=3
+	// So rows[2] is the middle content line.
+	if !strings.Contains(rows[2], "GoFugue") {
+		t.Errorf("expected default field 'GoFugue' to be drawn, got: %q", rows[2])
+	}
+}
+
+func TestStatusBar_SetStyle(t *testing.T) {
+	s := simScreen(t, 80, 5)
+	sb := tui.NewStatusBar(80)
+
+	style := tcell.StyleDefault.Background(tcell.ColorRed).Foreground(tcell.ColorWhite)
+	sb.SetStyle(style)
+
+	sb.Draw(s, 1)
+	s.Show()
+
+	// Content row is drawn at y=2, borders at y=1 and y=3.
+	_, _, gotStyle, _ := s.GetContent(0, 1)
+	if gotStyle != style {
+		t.Errorf("expected border style %v, got %v", style, gotStyle)
+	}
+	_, _, gotStyleContent, _ := s.GetContent(0, 2)
+	if gotStyleContent != style {
+		t.Errorf("expected content style %v, got %v", style, gotStyleContent)
+	}
+}
+
 func TestStatusBar_ShowsWorldName(t *testing.T) {
 	s := simScreen(t, 80, 5)
 	sb := tui.NewStatusBar(80)
