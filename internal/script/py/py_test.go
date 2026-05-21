@@ -465,3 +465,99 @@ tf.echo("hello from python")
 		t.Fatal("tf.echo not received within 5s")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Send command from Python
+// ---------------------------------------------------------------------------
+
+func TestBridge_PythonSend_CallsCallback(t *testing.T) {
+	skipIfNoPython3(t)
+	bridgePy := findBridgePy(t)
+
+	b := bus.New()
+	sendCh := make(chan [2]string, 4)
+	br := py.New(b, script.Callbacks{
+		Send: func(world, text string) error {
+			sendCh <- [2]string{world, text}
+			return nil
+		},
+		Echo:            func(s string) {},
+		ForegroundWorld: func() string { return "mud" },
+		Getvar:          func(name string) (string, bool) { return "", false },
+		Setvar:          func(name, val string) {},
+	}, bridgePy)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	defer br.Stop() //nolint:errcheck
+
+	script := writeTempScript(t, `
+import tf
+tf.send("mud", "say hello")
+`)
+
+	if err := br.Load(ctx, script); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	select {
+	case got := <-sendCh:
+		if got[0] != "mud" || got[1] != "say hello" {
+			t.Errorf("send = %v, want [mud, say hello]", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("tf.send not received within 5s")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Getvar command from Python
+// ---------------------------------------------------------------------------
+
+func TestBridge_PythonGetvar_ReturnsVar(t *testing.T) {
+	skipIfNoPython3(t)
+	bridgePy := findBridgePy(t)
+
+	b := bus.New()
+	echoCh := make(chan string, 4)
+	br := py.New(b, script.Callbacks{
+		Send:            func(world, text string) error { return nil },
+		Echo:            func(s string) { echoCh <- s },
+		ForegroundWorld: func() string { return "mud" },
+		Getvar: func(name string) (string, bool) {
+			if name == "my_var" {
+				return "secret_value", true
+			}
+			return "", false
+		},
+		Setvar:          func(name, val string) {},
+	}, bridgePy)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	defer br.Stop() //nolint:errcheck
+
+	script := writeTempScript(t, `
+import tf
+import threading
+
+def test_getvar():
+    val = tf.getvar("my_var")
+    tf.echo(f"got var: {val}")
+
+threading.Timer(0.1, test_getvar).start()
+`)
+
+	if err := br.Load(ctx, script); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	select {
+	case got := <-echoCh:
+		if !strings.Contains(got, "got var: secret_value") {
+			t.Errorf("echo = %q, want to contain 'got var: secret_value'", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("tf.getvar echo not received within 5s")
+	}
+}
