@@ -447,11 +447,17 @@ func (s *Session) SendNOP() {
 	}
 }
 
-// Send writes text + CRLF to the server, escaping any IAC bytes.
+// Send writes text + CRLF to the server, escaping any IAC bytes (if Telnet
+// is enabled for this session).
 func (s *Session) Send(text string) error {
-	escaped := escapeIAC([]byte(text))
-	escaped = append(escaped, '\r', '\n')
-	_, err := s.conn.Write(escaped)
+	var payload []byte
+	if s.telnetEnabled {
+		payload = escapeIAC([]byte(text))
+	} else {
+		payload = []byte(text)
+	}
+	payload = append(payload, '\r', '\n')
+	_, err := s.conn.Write(payload)
 	return err
 }
 

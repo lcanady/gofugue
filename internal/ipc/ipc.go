@@ -97,26 +97,33 @@ func (s *Server) SetHistoryFunc(fn func(n int) []string) {
 // Run starts all configured listeners and blocks until ctx is cancelled.
 func (s *Server) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
+	errCh := make(chan error, 4) // enough for all listeners
 
 	if s.cfg.SocketPath != "" {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_ = s.listenUnix(ctx, s.cfg.SocketPath)
+			if err := s.listenUnix(ctx, s.cfg.SocketPath); err != nil {
+				errCh <- err
+			}
 		}()
 	}
 	if s.cfg.TCPAddr != "" {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_ = s.listenTCP(ctx, s.cfg.TCPAddr)
+			if err := s.listenTCP(ctx, s.cfg.TCPAddr); err != nil {
+				errCh <- err
+			}
 		}()
 	}
 	if s.cfg.WSAddr != "" {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_ = s.listenWS(ctx, s.cfg.WSAddr)
+			if err := s.listenWS(ctx, s.cfg.WSAddr); err != nil {
+				errCh <- err
+			}
 		}()
 	}
 
@@ -136,8 +143,22 @@ func (s *Server) Run(ctx context.Context) error {
 		}
 	}()
 
-	wg.Wait()
-	return ctx.Err()
+	// Wait for context cancellation or a listener error.
+	var err error
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-ctx.Done():
+		err = ctx.Err()
+	case err = <-errCh:
+	case <-done:
+	}
+
+	return err
 }
 
 // Broadcast pushes a bus event to all clients that have subscribed to its type.

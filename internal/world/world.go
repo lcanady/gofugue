@@ -50,7 +50,12 @@ func (w *World) Send(text string) error {
 	if w.conn == nil {
 		return fmt.Errorf("world %q: not connected", w.Name)
 	}
-	_, err := fmt.Fprintf(w.conn, "%s\r\n", text)
+	// Use specialized Send if available (handles Telnet escaping and atomic CRLF).
+	if s, ok := w.conn.(interface{ Send(string) error }); ok {
+		return s.Send(text)
+	}
+	// Fallback for other transports: single Write for atomicity.
+	_, err := io.WriteString(w.conn, text+"\r\n")
 	return err
 }
 
