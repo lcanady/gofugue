@@ -554,3 +554,38 @@ func portOf(addr string) string {
 	_, port, _ := net.SplitHostPort(addr)
 	return port
 }
+
+func TestNew_ConfigPropagation(t *testing.T) {
+	tests := []struct {
+		url        string
+		skipVerify bool
+		wantSubstr string
+	}{
+		{"mud://localhost", true, "skipVerify:true"},
+		{"mud://localhost", false, "skipVerify:false"},
+		{"muds://localhost", true, "skipVerify:true"},
+		{"muds://localhost", false, "skipVerify:false"},
+		{"ws://localhost/path", true, "skipVerify:true"},
+		{"ws://localhost/path", false, "skipVerify:false"},
+		{"wt://localhost/path", true, "skipVerify:true"},
+		{"wt://localhost/path", false, "skipVerify:false"},
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%s_skipVerify_%t", tt.url, tt.skipVerify), func(t *testing.T) {
+			cfg := transport.Config{
+				URL:           tt.url,
+				TLSSkipVerify: tt.skipVerify,
+				TelnetEnabled: true, // Should just be present in Config, unhandled by New
+			}
+			tr, err := transport.New(cfg)
+			if err != nil {
+				t.Fatalf("New(%q): %v", tt.url, err)
+			}
+			repr := fmt.Sprintf("%#v", tr)
+			if !strings.Contains(repr, tt.wantSubstr) {
+				t.Errorf("New() returned %#v, want to contain %q", tr, tt.wantSubstr)
+			}
+		})
+	}
+}
