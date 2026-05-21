@@ -665,3 +665,32 @@ func TestSession_NAWS_DefaultSize_Is80x24(t *testing.T) {
 		t.Errorf("default NAWS size should be 80x24, got bytes: %v", w)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// proto.NewSession
+// ---------------------------------------------------------------------------
+
+func TestNewSession_TelnetEnabled(t *testing.T) {
+	conn := newConn([]byte{})
+	s := proto.NewSession("w", conn, bus.New(), true)
+
+	// To verify telnetEnabled is true, SendNOP() should write IAC NOP
+	s.SendNOP()
+	w := conn.written()
+	expected := []byte{255, 241} // telnetIAC, telnetNOP
+	if !bytes.Equal(w, expected) {
+		t.Errorf("proto.NewSession with telnetEnabled=true: SendNOP() wrote %v, want %v", w, expected)
+	}
+}
+
+func TestNewSession_TelnetDisabled(t *testing.T) {
+	conn := newConn([]byte{})
+	s := proto.NewSession("w", conn, bus.New(), false)
+
+	// To verify telnetEnabled is false, SendNOP() should write nothing
+	s.SendNOP()
+	w := conn.written()
+	if len(w) > 0 {
+		t.Errorf("proto.NewSession with telnetEnabled=false: SendNOP() wrote %v, want nothing", w)
+	}
+}
