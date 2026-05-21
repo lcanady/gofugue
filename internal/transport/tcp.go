@@ -20,9 +20,13 @@ func (t *tcpTransport) Dial(ctx context.Context) (io.ReadWriteCloser, error) {
 		return nil, err
 	}
 	if t.tls {
+		/* #nosec G402 */
 		tlsCfg := &tls.Config{
-			InsecureSkipVerify: t.skipVerify, //nolint:gosec // user opt-in for self-signed
+			InsecureSkipVerify: t.skipVerify,
 			ServerName:         hostOnly(t.host),
+		}
+		if t.skipVerify {
+			tlsCfg.VerifyConnection = verifySelfSigned
 		}
 		tlsConn := tls.Client(conn, tlsCfg)
 		if err := tlsConn.HandshakeContext(ctx); err != nil {

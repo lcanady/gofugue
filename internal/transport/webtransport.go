@@ -16,10 +16,16 @@ type wtTransport struct {
 }
 
 func (t *wtTransport) Dial(ctx context.Context) (io.ReadWriteCloser, error) {
+	/* #nosec G402 */
+	tlsCfg := &tls.Config{
+		InsecureSkipVerify: t.skipVerify,
+	}
+	if t.skipVerify {
+		tlsCfg.VerifyConnection = verifySelfSigned
+	}
+
 	d := webtransport.Dialer{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: t.skipVerify, //nolint:gosec
-		},
+		TLSClientConfig: tlsCfg,
 	}
 	_, session, err := d.Dial(ctx, t.url, http.Header{})
 	if err != nil {
