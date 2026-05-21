@@ -372,3 +372,237 @@ func TestParseDef_MultipleFlagsCombined(t *testing.T) {
 		t.Errorf("Body = %q, want %q", m.Body, "/echo HIT")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// /gag and /hilite edge cases
+// ---------------------------------------------------------------------------
+
+func TestImport_Gag(t *testing.T) {
+	res := parse(t, `/gag dragon=say I see a dragon!`)
+	if len(res.Macros) != 1 {
+		t.Fatalf("expected 1 macro, got %d", len(res.Macros))
+	}
+	m := res.Macros[0]
+	if m.Name != "dragon" {
+		t.Errorf("Name = %q, want %q", m.Name, "dragon")
+	}
+	if m.Type != macro.TypeGag {
+		t.Errorf("Type = %v, want TypeGag", m.Type)
+	}
+}
+
+func TestImport_Gag_ParseError(t *testing.T) {
+	res := parse(t, `/gag badgag`)
+	if len(res.Warnings) == 0 {
+		t.Error("expected warning for /gag without '='")
+	}
+	if len(res.Macros) != 0 {
+		t.Error("bad /gag should not produce a macro")
+	}
+}
+
+func TestImport_Hilite(t *testing.T) {
+	res := parse(t, `/hilite dragon=say I see a dragon!`)
+	if len(res.Macros) != 1 {
+		t.Fatalf("expected 1 macro, got %d", len(res.Macros))
+	}
+	m := res.Macros[0]
+	if m.Name != "dragon" {
+		t.Errorf("Name = %q, want %q", m.Name, "dragon")
+	}
+	if m.Type != macro.TypeHilite {
+		t.Errorf("Type = %v, want TypeHilite", m.Type)
+	}
+}
+
+func TestImport_Hilite_ParseError(t *testing.T) {
+	res := parse(t, `/hilite badhilite`)
+	if len(res.Warnings) == 0 {
+		t.Error("expected warning for /hilite without '='")
+	}
+	if len(res.Macros) != 0 {
+		t.Error("bad /hilite should not produce a macro")
+	}
+}
+
+func TestImport_Set_MissingEquals_ProducesWarning(t *testing.T) {
+	res := parse(t, `/set badset`)
+	if len(res.Warnings) == 0 {
+		t.Error("expected warning for /set without '='")
+	}
+}
+
+func TestImport_Key_MissingEquals_ProducesWarning(t *testing.T) {
+	res := parse(t, `/key badkey`)
+	if len(res.Warnings) == 0 {
+		t.Error("expected warning for /key without '='")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// /def flags edge cases
+// ---------------------------------------------------------------------------
+
+func TestParseDef_FlagP_InvalidInt(t *testing.T) {
+	res := parse(t, `/def -p foo mydef=body`)
+	if len(res.Warnings) == 0 {
+		t.Error("expected warning for /def -p with non-integer priority")
+	}
+}
+
+func TestParseDef_FlagC(t *testing.T) {
+	res := parse(t, `/def -c 50 mydef=body`)
+	if len(res.Macros) != 1 {
+		t.Fatalf("expected 1 macro, got %d", len(res.Macros))
+	}
+	if res.Macros[0].Prob != 50 {
+		t.Errorf("Prob = %d, want 50", res.Macros[0].Prob)
+	}
+}
+
+func TestParseDef_FlagN(t *testing.T) {
+	res := parse(t, `/def -n 5 mydef=body`)
+	if len(res.Macros) != 1 {
+		t.Fatalf("expected 1 macro, got %d", len(res.Macros))
+	}
+	if res.Macros[0].Shots != 5 {
+		t.Errorf("Shots = %d, want 5", res.Macros[0].Shots)
+	}
+
+	res2 := parse(t, `/def -n -1 mydef2=body`)
+	if len(res2.Macros) != 1 {
+		t.Fatalf("expected 1 macro, got %d", len(res2.Macros))
+	}
+	if res2.Macros[0].Shots != 1 {
+		t.Errorf("Shots = %d, want 1", res2.Macros[0].Shots)
+	}
+}
+
+func TestParseDef_FlagF(t *testing.T) {
+	res := parse(t, `/def -F mydef=body`)
+	if len(res.Macros) != 1 {
+		t.Fatalf("expected 1 macro, got %d", len(res.Macros))
+	}
+	if !res.Macros[0].Fallthru {
+		t.Error("Fallthru = false, want true")
+	}
+}
+
+func TestParseDef_FlagI(t *testing.T) {
+	res := parse(t, `/def -i mydef=body`)
+	if len(res.Macros) != 1 {
+		t.Fatalf("expected 1 macro, got %d", len(res.Macros))
+	}
+	if !res.Macros[0].Invisible {
+		t.Error("Invisible = false, want true")
+	}
+
+	res2 := parse(t, `/def -I mydef=body`)
+	if !res2.Macros[0].Invisible {
+		t.Error("Invisible = false, want true")
+	}
+}
+
+func TestParseDef_FlagM(t *testing.T) {
+	tests := []struct {
+		arg  string
+		want macro.MatchMode
+	}{
+		{"glob", macro.MatchGlob},
+		{"substr", macro.MatchSubstr},
+		{"simple", macro.MatchSubstr},
+		{"regexp", macro.MatchRegexp},
+		{"unknown", macro.MatchRegexp}, // defaults to regexp
+	}
+
+	for _, tt := range tests {
+		res := parse(t, `/def -m `+tt.arg+` mydef=body`)
+		if len(res.Macros) != 1 {
+			t.Fatalf("expected 1 macro for -m %s, got %d", tt.arg, len(res.Macros))
+		}
+		if res.Macros[0].MatchMode != tt.want {
+			t.Errorf("-m %s: MatchMode = %v, want %v", tt.arg, res.Macros[0].MatchMode, tt.want)
+		}
+	}
+}
+
+func TestParseDef_FlagH(t *testing.T) {
+	res := parse(t, `/def -h PENDING mydef=body`)
+	if len(res.Macros) != 1 {
+		t.Fatalf("expected 1 macro, got %d", len(res.Macros))
+	}
+	m := res.Macros[0]
+	if m.Type != macro.TypeHook {
+		t.Errorf("Type = %v, want TypeHook", m.Type)
+	}
+	if m.Pattern != "PENDING" {
+		t.Errorf("Pattern = %q, want PENDING", m.Pattern)
+	}
+	if m.Name != "mydef" {
+		t.Errorf("Name = %q, want mydef", m.Name)
+	}
+	if m.Body != "body" {
+		t.Errorf("Body = %q, want body", m.Body)
+	}
+}
+
+func TestParseDef_FlagH_MissingEquals(t *testing.T) {
+	res := parse(t, `/def -h HOOK no_equals`)
+	if len(res.Warnings) == 0 {
+		t.Error("expected warning for /def -h without '='")
+	}
+}
+
+func TestParseDef_FlagH_MissingName(t *testing.T) {
+	res := parse(t, `/def -h HOOK =body`)
+	if len(res.Warnings) == 0 {
+		t.Error("expected warning for /def -h without name")
+	}
+}
+
+func TestParseDef_MissingName(t *testing.T) {
+	res := parse(t, `/def =body`)
+	if len(res.Warnings) == 0 {
+		t.Error("expected warning for /def without name")
+	}
+}
+
+func TestParseDef_FlagA_FlagF(t *testing.T) {
+	res := parse(t, `/def -a red mydef=body`)
+	if len(res.Macros) != 1 {
+		t.Fatalf("expected 1 macro, got %d", len(res.Macros))
+	}
+	if res.Macros[0].Name != "mydef" {
+		t.Errorf("Name = %q, want mydef", res.Macros[0].Name)
+	}
+
+	res2 := parse(t, `/def -f blue mydef=body`)
+	if len(res2.Macros) != 1 {
+		t.Fatalf("expected 1 macro, got %d", len(res2.Macros))
+	}
+	if res2.Macros[0].Name != "mydef" {
+		t.Errorf("Name = %q, want mydef", res2.Macros[0].Name)
+	}
+}
+
+func TestParseDef_UnknownFlag(t *testing.T) {
+	// Notice that the default case only skips a value if it's quoted.
+	// Bare words following unknown flags are not consumed as values.
+	res := parse(t, `/def -z mydef=body`)
+	if len(res.Macros) != 1 {
+		t.Fatalf("expected 1 macro, got %d", len(res.Macros))
+	}
+	if res.Macros[0].Name != "mydef" {
+		t.Errorf("Name = %q, want mydef", res.Macros[0].Name)
+	}
+}
+
+func TestParseDef_UnknownFlag_QuotedValue(t *testing.T) {
+	res := parse(t, `/def -z"foo bar" mydef=body`)
+	if len(res.Macros) != 1 {
+		t.Fatalf("expected 1 macro, got %d", len(res.Macros))
+	}
+	if res.Macros[0].Name != "mydef" {
+		t.Errorf("Name = %q, want mydef", res.Macros[0].Name)
+	}
+}
