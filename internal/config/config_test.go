@@ -202,3 +202,40 @@ func TestLoad_MergesOverDefaults(t *testing.T) {
 		t.Error("IPC.TCPPort should have default value after partial load")
 	}
 }
+
+func TestDefaults_Exhaustive(t *testing.T) {
+	cfg := config.Defaults()
+
+	if cfg.ScrollbackLines != 5000 {
+		t.Errorf("ScrollbackLines = %d, want 5000", cfg.ScrollbackLines)
+	}
+	if cfg.WrapWidth != 0 {
+		t.Errorf("WrapWidth = %d, want 0", cfg.WrapWidth)
+	}
+	if cfg.IPC.TCPPort != 7878 {
+		t.Errorf("IPC.TCPPort = %d, want 7878", cfg.IPC.TCPPort)
+	}
+	if cfg.IPC.WSPort != 7879 {
+		t.Errorf("IPC.WSPort = %d, want 7879", cfg.IPC.WSPort)
+	}
+	if cfg.DefaultWorld != "" {
+		t.Errorf("DefaultWorld = %q, want empty", cfg.DefaultWorld)
+	}
+	if cfg.StartupScript != "" {
+		t.Errorf("StartupScript = %q, want empty", cfg.StartupScript)
+	}
+
+	// Theme default checks
+	if cfg.Theme.StatusFG != "" || cfg.Theme.StatusBG != "" || cfg.Theme.StatusBold || cfg.Theme.StatusReverse {
+		t.Errorf("Theme Status defaults should be empty/false")
+	}
+	if cfg.Theme.InputFG != "" || cfg.Theme.InputBG != "" || cfg.Theme.InputReverse {
+		t.Errorf("Theme Input defaults should be empty/false")
+	}
+
+	if cfg.Worlds == nil {
+		t.Error("Worlds map should be initialised, not nil")
+	} else if len(cfg.Worlds) != 0 {
+		t.Errorf("Worlds map length = %d, want 0", len(cfg.Worlds))
+	}
+}
