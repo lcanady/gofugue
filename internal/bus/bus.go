@@ -4,7 +4,9 @@ package bus
 
 import (
 	"context"
+	"log/slog"
 	"sync"
+	"sync/atomic"
 )
 
 // EventType identifies the kind of event.
@@ -127,13 +129,25 @@ func (s *Subscription) Cancel() { s.cancel() }
 // channel. Slow subscribers are dropped (non-blocking send) to prevent the
 // bus from stalling the rest of the system.
 type Bus struct {
-	mu   sync.RWMutex
-	subs map[EventType][]*subscription
+	mu     sync.RWMutex
+	subs   map[EventType][]*subscription
+	nextID atomic.Uint64
 }
 
 type subscription struct {
-	ch     chan Event
-	filter EventType // empty = all
+	id      uint64
+	ch      chan Event
+	filter  EventType // empty = all
+	dropped atomic.Uint64
+}
+
+// SubscriberStat is a snapshot of one subscription's runtime state.
+type SubscriberStat struct {
+	ID         uint64      `json:"id"`
+	EventTypes []EventType `json:"event_types"`
+	Dropped    uint64      `json:"dropped"`
+	Capacity   int         `json:"capacity"`
+	Pending    int         `json:"pending"`
 }
 
 // New returns a ready-to-use Bus.
@@ -146,15 +160,16 @@ func New() *Bus {
 func (b *Bus) Subscribe(bufSize int, types ...EventType) *Subscription {
 	ch := make(chan Event, bufSize)
 	subs := make([]*subscription, 0, len(types))
+	id := b.nextID.Add(1)
 
 	b.mu.Lock()
 	if len(types) == 0 {
-		s := &subscription{ch: ch}
+		s := &subscription{id: id, ch: ch}
 		b.subs[""] = append(b.subs[""], s)
 		subs = append(subs, s)
 	} else {
 		for _, t := range types {
-			s := &subscription{ch: ch, filter: t}
+			s := &subscription{id: id, ch: ch, filter: t}
 			b.subs[t] = append(b.subs[t], s)
 			subs = append(subs, s)
 		}
@@ -189,18 +204,65 @@ func (b *Bus) Publish(ev Event) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
+	evType := ev.Type()
 	send := func(s *subscription) {
 		select {
 		case s.ch <- ev:
 		default:
+			// Channel full: increment the per-subscription drop counter
+			// atomically (no bus lock needed on the hot path) and emit a
+			// slog.Debug line, rate-limited to power-of-two drop counts
+			// (1, 2, 4, 8, 16, ...) so a flood of drops can't bury other
+			// logs. Stats() exposes the precise running total.
+			n := s.dropped.Add(1)
+			if n&(n-1) == 0 {
+				slog.Debug("bus drop",
+					"event_type", evType,
+					"subscription", s.id,
+					"dropped_total", n)
+			}
 		}
 	}
-	for _, s := range b.subs[ev.Type()] {
+	for _, s := range b.subs[evType] {
 		send(s)
 	}
 	for _, s := range b.subs[""] {
 		send(s)
 	}
+}
+
+// Stats returns a snapshot of every active subscription. Subscriptions that
+// listen to multiple event types are coalesced by ID so each appears once
+// with all of its filters listed.
+func (b *Bus) Stats() []SubscriberStat {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	byID := make(map[uint64]*SubscriberStat)
+	order := make([]uint64, 0)
+	for key, sl := range b.subs {
+		for _, s := range sl {
+			stat, ok := byID[s.id]
+			if !ok {
+				stat = &SubscriberStat{
+					ID:       s.id,
+					Dropped:  s.dropped.Load(),
+					Capacity: cap(s.ch),
+					Pending:  len(s.ch),
+				}
+				byID[s.id] = stat
+				order = append(order, s.id)
+			}
+			if key != "" {
+				stat.EventTypes = append(stat.EventTypes, key)
+			}
+		}
+	}
+	out := make([]SubscriberStat, 0, len(order))
+	for _, id := range order {
+		out = append(out, *byID[id])
+	}
+	return out
 }
 
 // PublishCtx publishes ev, respecting ctx cancellation on a best-effort basis.

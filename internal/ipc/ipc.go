@@ -12,9 +12,12 @@ package ipc
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/kumakun/gofugue/internal/bus"
 )
@@ -185,6 +188,21 @@ func (s *Server) broadcast(ev bus.Event) {
 }
 
 func (s *Server) listenUnix(ctx context.Context, path string) error {
+	// Ensure the parent directory exists. Without this, a fresh install
+	// (no ~/.config/gofugue) fails to bind and historically cascaded into
+	// process exit.
+	if dir := filepath.Dir(path); dir != "" {
+		_ = os.MkdirAll(dir, 0o700)
+	}
+	// Clean up a stale socket from a previous ungraceful exit. We do this
+	// only if no process is listening on it — probe by dialing.
+	if _, err := os.Stat(path); err == nil {
+		if conn, derr := net.DialTimeout("unix", path, 100*time.Millisecond); derr == nil {
+			conn.Close()
+			return fmt.Errorf("listen unix %s: another gofugue is already running", path)
+		}
+		_ = os.Remove(path)
+	}
 	l, err := net.Listen("unix", path)
 	if err != nil {
 		return err

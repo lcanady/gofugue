@@ -419,6 +419,10 @@ func startIPCServer(
 		return map[string]bool{"ok": true}, nil
 	})
 
+	ipcServer.Handle("bus.stats", func(_ context.Context, _ *ipc.Client, _ json.RawMessage) (any, error) {
+		return b.Stats(), nil
+	})
+
 	ipcServer.Handle("worlds.status", func(_ context.Context, _ *ipc.Client, _ json.RawMessage) (any, error) {
 		infos := worldMgr.WorldInfos()
 		type worldStatus struct {
