@@ -427,6 +427,22 @@ func TestApp_HistoryPrevNext_CyclesEntries(t *testing.T) {
 // OutputPane tests
 // ---------------------------------------------------------------------------
 
+func TestNewOutputPane(t *testing.T) {
+	pane := tui.NewOutputPane(80, 24)
+	if pane == nil {
+		t.Fatal("NewOutputPane returned nil")
+	}
+
+	if !pane.AtBottom() {
+		t.Error("newly created OutputPane should be at the bottom")
+	}
+
+	// Verify Draw does not panic on an empty newly created pane
+	s := simScreen(t, 80, 24)
+	pane.Draw(s, 0)
+	s.Show()
+}
+
 func TestOutputPane_AppendAndRender(t *testing.T) {
 	s := simScreen(t, 40, 10)
 	pane := tui.NewOutputPane(40, 8)
