@@ -6,13 +6,14 @@ import (
 	"time"
 
 	"github.com/kumakun/gofugue/internal/bus"
+	"github.com/kumakun/gofugue/internal/script"
 	scriptjs "github.com/kumakun/gofugue/internal/script/js"
 )
 
 func newBridge(t *testing.T, echo func(string)) *scriptjs.Bridge {
 	t.Helper()
 	b := bus.New()
-	cb := scriptjs.Callbacks{
+	cb := script.Callbacks{
 		Echo: echo,
 		Send: func(world, text string) error { return nil },
 		ForegroundWorld: func() string { return "test" },
@@ -57,7 +58,7 @@ func TestEval_EchoCallback(t *testing.T) {
 func TestEval_SetvarGetvar(t *testing.T) {
 	vars := map[string]string{}
 	b := bus.New()
-	cb := scriptjs.Callbacks{
+	cb := script.Callbacks{
 		Echo:            func(s string) {},
 		Send:            func(world, text string) error { return nil },
 		ForegroundWorld: func() string { return "test" },
@@ -89,7 +90,7 @@ func TestEval_SetvarGetvar(t *testing.T) {
 func TestDef_TriggerFires(t *testing.T) {
 	echoCh := make(chan string, 4)
 	b := bus.New()
-	cb := scriptjs.Callbacks{
+	cb := script.Callbacks{
 		Echo:            func(s string) { echoCh <- s },
 		Send:            func(world, text string) error { return nil },
 		ForegroundWorld: func() string { return "test" },
@@ -131,7 +132,7 @@ func TestDef_TriggerFires(t *testing.T) {
 func TestHookCallback(t *testing.T) {
 	echoCh := make(chan string, 4)
 	b := bus.New()
-	cb := scriptjs.Callbacks{
+	cb := script.Callbacks{
 		Echo:            func(s string) { echoCh <- s },
 		Send:            func(world, text string) error { return nil },
 		ForegroundWorld: func() string { return "test" },

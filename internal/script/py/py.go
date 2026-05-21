@@ -33,16 +33,8 @@ import (
 	"sync"
 
 	"github.com/kumakun/gofugue/internal/bus"
+	"github.com/kumakun/gofugue/internal/script"
 )
-
-// Callbacks supplied by the caller to give the bridge access to GoFugue state.
-type Callbacks struct {
-	Send            func(world, text string) error
-	Echo            func(text string)
-	ForegroundWorld func() string
-	Getvar          func(name string) (string, bool)
-	Setvar          func(name, value string)
-}
 
 // pyTrigger tracks a pattern registered by Python.
 type pyTrigger struct {
@@ -52,7 +44,7 @@ type pyTrigger struct {
 
 // Bridge manages the Python subprocess and its event subscriptions.
 type Bridge struct {
-	cb       Callbacks
+	cb       script.Callbacks
 	bus      *bus.Bus
 	bridgePy string // path to bridge.py
 
@@ -64,7 +56,7 @@ type Bridge struct {
 }
 
 // New creates a Python Bridge with the given bus, callbacks, and bridge.py path.
-func New(b *bus.Bus, cb Callbacks, bridgePy string) *Bridge {
+func New(b *bus.Bus, cb script.Callbacks, bridgePy string) *Bridge {
 	return &Bridge{cb: cb, bus: b, bridgePy: bridgePy}
 }
 

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/kumakun/gofugue/internal/bus"
+	"github.com/kumakun/gofugue/internal/script"
 	scriptjs "github.com/kumakun/gofugue/internal/script/js"
 )
 
@@ -14,7 +15,7 @@ import (
 func newBridgeWithBus(t *testing.T, echo func(string)) (*scriptjs.Bridge, *bus.Bus) {
 	t.Helper()
 	b := bus.New()
-	cb := scriptjs.Callbacks{
+	cb := script.Callbacks{
 		Echo:            echo,
 		Send:            func(world, text string) error { return nil },
 		ForegroundWorld: func() string { return "mud" },
@@ -47,7 +48,7 @@ func TestSetTimeout_FiresOnce(t *testing.T) {
 	vars := map[string]string{}
 	_ = br2
 	b2 := bus.New()
-	cb2 := scriptjs.Callbacks{
+	cb2 := script.Callbacks{
 		Echo:            func(string) {},
 		Send:            func(world, text string) error { return nil },
 		ForegroundWorld: func() string { return "mud" },
@@ -74,7 +75,7 @@ func TestSetTimeout_FiresOnce(t *testing.T) {
 func TestSetTimeout_ClearBeforeFiring(t *testing.T) {
 	var fired int32
 	b := bus.New()
-	cb := scriptjs.Callbacks{
+	cb := script.Callbacks{
 		Echo:            func(string) {},
 		Send:            func(world, text string) error { return nil },
 		ForegroundWorld: func() string { return "mud" },
@@ -109,7 +110,7 @@ func TestSetTimeout_ClearBeforeFiring(t *testing.T) {
 func TestSetInterval_FiresRepeatedly(t *testing.T) {
 	var count int32
 	b := bus.New()
-	cb := scriptjs.Callbacks{
+	cb := script.Callbacks{
 		Echo:            func(string) {},
 		Send:            func(world, text string) error { return nil },
 		ForegroundWorld: func() string { return "mud" },
@@ -138,7 +139,7 @@ func TestSetInterval_FiresRepeatedly(t *testing.T) {
 func TestSetInterval_ClearStopsFiring(t *testing.T) {
 	var count int32
 	b := bus.New()
-	cb := scriptjs.Callbacks{
+	cb := script.Callbacks{
 		Echo:            func(string) {},
 		Send:            func(world, text string) error { return nil },
 		ForegroundWorld: func() string { return "mud" },
@@ -180,7 +181,7 @@ func TestSetInterval_ClearStopsFiring(t *testing.T) {
 func TestUndef_StopsTrigger(t *testing.T) {
 	echoCh := make(chan string, 8)
 	b := bus.New()
-	cb := scriptjs.Callbacks{
+	cb := script.Callbacks{
 		Echo:            func(s string) { echoCh <- s },
 		Send:            func(world, text string) error { return nil },
 		ForegroundWorld: func() string { return "mud" },
@@ -327,7 +328,7 @@ func TestGMCP_SpecificModule_DoesNotFireForOther(t *testing.T) {
 
 func TestWorld_ReturnsForeground(t *testing.T) {
 	b := bus.New()
-	cb := scriptjs.Callbacks{
+	cb := script.Callbacks{
 		Echo:            func(string) {},
 		Send:            func(world, text string) error { return nil },
 		ForegroundWorld: func() string { return "myworld" },

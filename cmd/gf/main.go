@@ -24,6 +24,7 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/kumakun/gofugue/internal/bus"
+	"github.com/kumakun/gofugue/internal/script"
 	"github.com/kumakun/gofugue/internal/cmd"
 	"github.com/kumakun/gofugue/internal/compat"
 	"github.com/kumakun/gofugue/internal/config"
@@ -132,7 +133,7 @@ func run(ctx context.Context) error {
 		}})
 	}
 
-	jsBridge := scriptjs.New(b, scriptjs.Callbacks{
+	jsBridge := scriptjs.New(b, script.Callbacks{
 		Send:            worldMgr.Send,
 		Echo:            scriptEcho,
 		ForegroundWorld: worldMgr.Foreground,
@@ -142,7 +143,7 @@ func run(ctx context.Context) error {
 	jsBridge.Start(ctx)
 
 	bridgePyPath := *flagBridgePy
-	pyBridge := scriptpy.New(b, scriptpy.Callbacks{
+	pyBridge := scriptpy.New(b, script.Callbacks{
 		Send:            worldMgr.Send,
 		Echo:            scriptEcho,
 		ForegroundWorld: worldMgr.Foreground,
