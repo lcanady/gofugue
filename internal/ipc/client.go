@@ -6,8 +6,24 @@ import (
 	"encoding/json"
 	"net"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/kumakun/gofugue/internal/bus"
+)
+
+// Tunables for the per-client write queue. A slow client is dropped once
+// either limit is exceeded so it cannot stall faster subscribers.
+const (
+	// writeQueueSize is the per-client buffered channel depth. Once full,
+	// further enqueues are non-blocking drops counted against the client.
+	writeQueueSize = 256
+	// writeDeadline bounds how long a single conn.Write may take. A timeout
+	// causes the client to be force-closed.
+	writeDeadline = 2 * time.Second
+	// maxConsecutiveDrops is how many in-a-row drops the client may
+	// accumulate before it is force-closed for being slow.
+	maxConsecutiveDrops = 16
 )
 
 // Client represents a single connected IPC frontend.
@@ -15,17 +31,27 @@ type Client struct {
 	conn   net.Conn
 	server *Server
 
-	mu          sync.Mutex
-	subscribed  map[bus.EventType]struct{}
-	allEvents   bool
+	mu         sync.Mutex
+	subscribed map[bus.EventType]struct{}
+	allEvents  bool
+
+	writeCh   chan []byte
+	closeOnce sync.Once
+	closed    chan struct{}
+
+	consecutiveDrops atomic.Int32
 }
 
 func newClient(conn net.Conn, s *Server) *Client {
-	return &Client{
+	c := &Client{
 		conn:       conn,
 		server:     s,
 		subscribed: make(map[bus.EventType]struct{}),
+		writeCh:    make(chan []byte, writeQueueSize),
+		closed:     make(chan struct{}),
 	}
+	go c.writeLoop()
+	return c
 }
 
 func (c *Client) isSubscribed(t bus.EventType) bool {
@@ -50,15 +76,60 @@ func (c *Client) subscribe(types ...bus.EventType) {
 	}
 }
 
+// write enqueues data for the writer goroutine without blocking. If the
+// queue is full the message is dropped and the client's slow-counter is
+// bumped. Once a client has dropped too many messages in a row it is
+// forcibly closed so the broadcast loop will prune it.
 func (c *Client) write(data []byte) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.conn.Write(data) //nolint:errcheck
+	select {
+	case <-c.closed:
+		return
+	default:
+	}
+	select {
+	case c.writeCh <- data:
+		c.consecutiveDrops.Store(0)
+	default:
+		if c.consecutiveDrops.Add(1) >= maxConsecutiveDrops {
+			c.forceClose()
+		}
+	}
+}
+
+// forceClose closes the underlying conn and signals the writer goroutine to
+// exit. Safe to call multiple times.
+func (c *Client) forceClose() {
+	c.closeOnce.Do(func() {
+		close(c.closed)
+		_ = c.conn.Close()
+	})
+}
+
+// writeLoop is the per-client writer goroutine. It owns conn.Write and
+// applies a deadline to every write. On any error (including timeout) it
+// shuts the client down — the read loop will then see EOF.
+func (c *Client) writeLoop() {
+	for {
+		select {
+		case <-c.closed:
+			// Drain best-effort then exit.
+			return
+		case data, ok := <-c.writeCh:
+			if !ok {
+				return
+			}
+			_ = c.conn.SetWriteDeadline(time.Now().Add(writeDeadline))
+			if _, err := c.conn.Write(data); err != nil {
+				c.forceClose()
+				return
+			}
+		}
+	}
 }
 
 func (c *Client) serve(ctx context.Context) {
 	defer func() {
-		c.conn.Close()
+		c.forceClose()
 		c.server.remove(c)
 	}()
 
