@@ -74,7 +74,62 @@ func run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	// --- Config ---
+	cfg := loadConfig()
+
+	scrollback := cfg.ScrollbackLines
+	if scrollback <= 0 {
+		scrollback = 5000
+	}
+
+	b := bus.New()
+	scope := expr.NewScope()
+	macroEng := macro.New()
+	worldMgr := world.NewManager(b)
+
+	setupMacroEval(macroEng, scope)
+
+	dispatcher := cmd.New()
+	histMgr := history.NewManager(scrollback)
+	timerPool := timers.New()
+
+	restrict := struct{ Shell, File, World bool }{}
+
+	for name, wcfg := range cfg.Worlds {
+		wcfg.Name = name
+		worldMgr.Add(wcfg)
+	}
+
+	jsBridge, pyBridge := setupScriptingBridges(ctx, b, scope, worldMgr)
+
+	for _, p := range plugin.All() {
+		slog.Info("plugin registered", "name", p.Name())
+	}
+
+	loadStartupScript(&cfg, macroEng, scope)
+
+	var timerCmdCtxPtr *cmd.Context
+	timerCmdCtx := func() *cmd.Context { return timerCmdCtxPtr }
+
+	cmdCtx := buildCommandContext(
+		ctx, b, worldMgr, macroEng, scope, histMgr, timerPool, dispatcher,
+		jsBridge, pyBridge, timerCmdCtx, &restrict, cancel,
+	)
+
+	timerCmdCtxPtr = cmdCtx
+	startPipelines(ctx, b, worldMgr, macroEng, histMgr, scope, cmdCtx, dispatcher)
+
+	startIPCServer(ctx, &cfg, b, histMgr, worldMgr)
+
+	slog.Info("gf ready", "version", version, "headless", *flagHeadless)
+
+	if *flagHeadless {
+		return runHeadless(ctx, &cfg, worldMgr)
+	}
+
+	return runTUI(ctx, &cfg, b, worldMgr, dispatcher, macroEng, cmdCtx)
+}
+
+func loadConfig() config.Config {
 	cfg, err := config.Load(*flagConfig)
 	if err != nil {
 		slog.Warn("config load failed, using defaults", "path", *flagConfig, "err", err)
@@ -87,44 +142,29 @@ func run(ctx context.Context) error {
 	if *flagIPCWsPort > 0 {
 		cfg.IPC.WSPort = *flagIPCWsPort
 	}
-	scrollback := cfg.ScrollbackLines
-	if scrollback <= 0 {
-		scrollback = 5000
-	}
+	return cfg
+}
 
-	// --- Core subsystems ---
-	b := bus.New()
-	scope := expr.NewScope()
-	macroEng := macro.New()
-	worldMgr := world.NewManager(b)
-
-	// Wire expression evaluator for -E condition gates.
+func setupMacroEval(macroEng *macro.Engine, scope *expr.Scope) {
 	macroEng.SetEvalFunc(func(e string) (bool, error) {
 		result, err := expr.Eval(e, scope)
 		if err != nil {
 			return false, err
 		}
-		// Truthy: non-empty, non-"0", non-"false".
 		switch strings.TrimSpace(strings.ToLower(result)) {
 		case "", "0", "false":
 			return false, nil
 		}
 		return true, nil
 	})
-	dispatcher := cmd.New()
-	histMgr := history.NewManager(scrollback)
-	timerPool := timers.New()
+}
 
-	// Restriction flags (read by commands that check them in future).
-	restrict := struct{ Shell, File, World bool }{}
-
-	// Register worlds from config.
-	for name, wcfg := range cfg.Worlds {
-		wcfg.Name = name
-		worldMgr.Add(wcfg)
-	}
-
-	// --- Scripting bridges ---
+func setupScriptingBridges(
+	ctx context.Context,
+	b *bus.Bus,
+	scope *expr.Scope,
+	worldMgr *world.Manager,
+) (*scriptjs.Bridge, *scriptpy.Bridge) {
 	scriptEcho := func(text string) {
 		b.Publish(bus.WorldRenderedEvent{WorldLineEvent: bus.WorldLineEvent{
 			WorldName: "local",
@@ -151,12 +191,10 @@ func run(ctx context.Context) error {
 		Setvar:          func(name, value string) { scope.Set(name, value) },
 	}, bridgePyPath)
 
-	// --- Plugins ---
-	for _, p := range plugin.All() {
-		slog.Info("plugin registered", "name", p.Name())
-	}
+	return jsBridge, pyBridge
+}
 
-	// --- Startup script ---
+func loadStartupScript(cfg *config.Config, macroEng *macro.Engine, scope *expr.Scope) {
 	startupScript := cfg.StartupScript
 	if *flagScript != "" {
 		startupScript = *flagScript
@@ -166,14 +204,24 @@ func run(ctx context.Context) error {
 			slog.Warn("startup script error", "path", startupScript, "err", err)
 		}
 	}
+}
 
-	// timerCmdCtx is an indirection so timer callbacks can reference cmdCtx
-	// even though the pointer isn't available during struct literal construction.
-	var timerCmdCtxPtr *cmd.Context
-	timerCmdCtx := func() *cmd.Context { return timerCmdCtxPtr }
-
-	// --- Build the command Context ---
-	cmdCtx := &cmd.Context{
+func buildCommandContext(
+	ctx context.Context,
+	b *bus.Bus,
+	worldMgr *world.Manager,
+	macroEng *macro.Engine,
+	scope *expr.Scope,
+	histMgr *history.Manager,
+	timerPool *timers.Pool,
+	dispatcher *cmd.Dispatcher,
+	jsBridge *scriptjs.Bridge,
+	pyBridge *scriptpy.Bridge,
+	timerCmdCtx func() *cmd.Context,
+	restrict *struct{ Shell, File, World bool },
+	cancel context.CancelFunc,
+) *cmd.Context {
+	return &cmd.Context{
 		Ctx:   ctx,
 		World: worldMgr.Foreground(),
 		Output: func(text string) {
@@ -224,7 +272,6 @@ func run(ctx context.Context) error {
 			if err != nil {
 				return 0, fmt.Errorf("invalid duration %q: %w", duration, err)
 			}
-			// cmdCtx captured after struct is fully constructed (set below).
 			id := timerPool.Add(ctx, d, repeat, func() {
 				fg := worldMgr.Foreground()
 				expanded := expandCaptures(body, nil, scope)
@@ -253,7 +300,7 @@ func run(ctx context.Context) error {
 		LoadJS:     jsBridge.Load,
 		EvalJS:     jsBridge.Eval,
 		LoadPy: func(path string) error {
-			if bridgePyPath == "" {
+			if *flagBridgePy == "" {
 				return fmt.Errorf("--bridge-py not set; cannot load Python scripts")
 			}
 			return pyBridge.Load(ctx, path)
@@ -307,12 +354,15 @@ func run(ctx context.Context) error {
 			cancel()
 		},
 	}
+}
 
-	// --- Pipeline goroutines ---
-	timerCmdCtxPtr = cmdCtx // now safe to use in timer callbacks
-	startPipelines(ctx, b, worldMgr, macroEng, histMgr, scope, cmdCtx, dispatcher)
-
-	// --- IPC server ---
+func startIPCServer(
+	ctx context.Context,
+	cfg *config.Config,
+	b *bus.Bus,
+	histMgr *history.Manager,
+	worldMgr *world.Manager,
+) {
 	ipcCfg := ipc.Config{
 		SocketPath: config.DefaultSocketPath(),
 	}
@@ -332,7 +382,6 @@ func run(ctx context.Context) error {
 		return out
 	})
 
-	// input: send raw text to a world (goes through alias/speedwalk pipeline).
 	ipcServer.Handle("input", func(_ context.Context, _ *ipc.Client, params json.RawMessage) (any, error) {
 		var p struct {
 			World string `json:"world"`
@@ -349,7 +398,6 @@ func run(ctx context.Context) error {
 		return map[string]bool{"ok": true}, nil
 	})
 
-	// cmd: dispatch a /command line (same as typing /connect etc in the TUI).
 	ipcServer.Handle("cmd", func(_ context.Context, _ *ipc.Client, params json.RawMessage) (any, error) {
 		var p struct {
 			World string `json:"world"`
@@ -366,8 +414,6 @@ func run(ctx context.Context) error {
 		return map[string]bool{"ok": true}, nil
 	})
 
-	// worlds.status: returns current connection state of all registered worlds.
-	// Call this after subscribe to hydrate the frontend on reconnect.
 	ipcServer.Handle("worlds.status", func(_ context.Context, _ *ipc.Client, _ json.RawMessage) (any, error) {
 		infos := worldMgr.WorldInfos()
 		type worldStatus struct {
@@ -387,32 +433,35 @@ func run(ctx context.Context) error {
 			cancel()
 		}
 	}()
+}
 
-	slog.Info("gf ready", "version", version, "headless", *flagHeadless)
-
-	// --- TUI or headless ---
-	if *flagHeadless {
-		// In headless mode we can connect before the event loop.
-		if cfg.DefaultWorld != "" {
-			if err := worldMgr.Connect(ctx, cfg.DefaultWorld, nil); err != nil {
-				slog.Warn("default world connect failed", "world", cfg.DefaultWorld, "err", err)
-			}
+func runHeadless(ctx context.Context, cfg *config.Config, worldMgr *world.Manager) error {
+	if cfg.DefaultWorld != "" {
+		if err := worldMgr.Connect(ctx, cfg.DefaultWorld, nil); err != nil {
+			slog.Warn("default world connect failed", "world", cfg.DefaultWorld, "err", err)
 		}
-		if *flagConnect != "" {
-			name := world.NameFromURL(*flagConnect)
-			wcfg := &config.WorldConfig{Name: name, URL: *flagConnect}
-			if err := worldMgr.Connect(ctx, name, wcfg); err != nil {
-				slog.Warn("--connect failed", "url", *flagConnect, "err", err)
-			}
-		}
-		<-ctx.Done()
-		slog.Info("shutting down")
-		return ctx.Err()
 	}
+	if *flagConnect != "" {
+		name := world.NameFromURL(*flagConnect)
+		wcfg := &config.WorldConfig{Name: name, URL: *flagConnect}
+		if err := worldMgr.Connect(ctx, name, wcfg); err != nil {
+			slog.Warn("--connect failed", "url", *flagConnect, "err", err)
+		}
+	}
+	<-ctx.Done()
+	slog.Info("shutting down")
+	return ctx.Err()
+}
 
-	// Redirect slog away from stderr while tcell owns the terminal.
-	// Stray writes to stderr corrupt the raw-mode screen; we always redirect
-	// to at least io.Discard so no log path can break the display.
+func runTUI(
+	ctx context.Context,
+	cfg *config.Config,
+	b *bus.Bus,
+	worldMgr *world.Manager,
+	dispatcher *cmd.Dispatcher,
+	macroEng *macro.Engine,
+	cmdCtx *cmd.Context,
+) error {
 	logWriter := io.Writer(io.Discard)
 	if logDir, err := os.UserCacheDir(); err == nil {
 		logPath := filepath.Join(logDir, "gofugue", "gofugue.log")
@@ -434,9 +483,6 @@ func run(ctx context.Context) error {
 		return completionCandidates(prefix, dispatcher, worldMgr, macroEng)
 	})
 
-	// Deferred connect: run after the screen is initialised so that
-	// StatusEvents are received by the TUI and errors appear in the output
-	// pane rather than as raw stderr text that corrupts the display.
 	app.SetOnReady(func() {
 		connectAndReport := func(name string, wcfg *config.WorldConfig) {
 			if err := worldMgr.Connect(ctx, name, wcfg); err != nil {
