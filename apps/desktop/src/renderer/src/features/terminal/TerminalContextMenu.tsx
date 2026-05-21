@@ -73,19 +73,6 @@ export function TerminalContextMenu({ children, client }: TerminalContextMenuPro
 
           <ContextMenu.Separator className="my-1 h-px bg-border mx-1" />
 
-          {/* Trigger creation — placeholder for future trigger engine UI */}
-          <MenuItem
-            onSelect={() => {
-              const sel = getSelection();
-              if (sel) console.log('[GoFugue] Create trigger from:', sel); // TODO: open trigger editor
-            }}
-            disabled={false}
-          >
-            Create trigger from selection
-          </MenuItem>
-
-          <ContextMenu.Separator className="my-1 h-px bg-border mx-1" />
-
           {/* Destructive */}
           <MenuItem onSelect={handleClearOutput} className="text-destructive focus:text-destructive">
             Clear output
