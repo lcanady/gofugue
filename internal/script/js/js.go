@@ -382,7 +382,7 @@ func (br *Bridge) exposeAPI() {
 		if !ok {
 			panic(rt.NewTypeError("tf.def: third argument must be a function"))
 		}
-		re, err := regexp.Compile(pattern)
+		re, err := script.CompileRegexp(pattern)
 		if err != nil {
 			panic(rt.NewGoError(fmt.Errorf("tf.def %q: invalid pattern: %w", name, err)))
 		}

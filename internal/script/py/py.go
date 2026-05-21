@@ -281,7 +281,7 @@ func (br *Bridge) dispatch(method string, msg map[string]json.RawMessage) {
 		}
 	case "def":
 		name, pattern := str("name"), str("pattern")
-		re, err := regexp.Compile(pattern)
+		re, err := script.CompileRegexp(pattern)
 		if err != nil {
 			slog.Warn("py: def bad pattern", "name", name, "err", err)
 			return
