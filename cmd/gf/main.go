@@ -384,6 +384,7 @@ func run(ctx context.Context) error {
 	go func() {
 		if err := ipcServer.Run(ctx); err != nil && err != context.Canceled {
 			slog.Error("ipc server error", "err", err)
+			cancel()
 		}
 	}()
 

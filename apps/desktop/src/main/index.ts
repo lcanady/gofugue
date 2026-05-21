@@ -31,19 +31,47 @@ function gofugueBinaryPath(): string {
  */
 function killStaleGofugue(): void {
   try {
-    // Find PIDs listening on our IPC ports and kill them.
-    const pids = execSync("lsof -ti :7878,:7879 2>/dev/null || true", { encoding: 'utf8' })
-      .split('\n')
-      .map((s) => s.trim())
-      .filter(Boolean);
-    for (const pid of pids) {
-      try { process.kill(Number(pid), 'SIGTERM'); } catch { /* already gone */ }
+    const pids: string[] = [];
+
+    if (process.platform === 'win32') {
+      // Windows: use netstat to find PIDs on ports 7878/7879.
+      const out = execSync('netstat -ano', { encoding: 'utf8' });
+      const lines = out.split('\n');
+      for (const line of lines) {
+        if (line.includes(':7878') || line.includes(':7879')) {
+          const parts = line.trim().split(/\s+/);
+          const pid = parts[parts.length - 1];
+          if (pid && pid !== '0' && !pids.includes(pid)) {
+            pids.push(pid);
+          }
+        }
+      }
+    } else {
+      // Unix: use lsof.
+      execSync('lsof -ti :7878,:7879 2>/dev/null || true', { encoding: 'utf8' })
+        .split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .forEach((pid) => pids.push(pid));
     }
+
+    for (const pid of pids) {
+      try {
+        if (process.platform === 'win32') {
+          execSync(`taskkill /F /PID ${pid}`);
+        } else {
+          process.kill(Number(pid), 'SIGTERM');
+        }
+      } catch {
+        /* already gone or access denied */
+      }
+    }
+
     if (pids.length > 0) {
       console.log(`[gofugue] killed ${pids.length} stale process(es) on ports 7878/7879`);
     }
   } catch {
-    // lsof not available or no stale processes — proceed normally.
+    // tools not available or no stale processes — proceed normally.
   }
 }
 

@@ -14,7 +14,6 @@ import (
 type Client struct {
 	conn   net.Conn
 	server *Server
-	w      *bufio.Writer
 
 	mu          sync.Mutex
 	subscribed  map[bus.EventType]struct{}
@@ -25,7 +24,6 @@ func newClient(conn net.Conn, s *Server) *Client {
 	return &Client{
 		conn:       conn,
 		server:     s,
-		w:          bufio.NewWriter(conn),
 		subscribed: make(map[bus.EventType]struct{}),
 	}
 }
@@ -55,8 +53,7 @@ func (c *Client) subscribe(types ...bus.EventType) {
 func (c *Client) write(data []byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.w.Write(data) //nolint:errcheck
-	c.w.Flush()     //nolint:errcheck
+	c.conn.Write(data) //nolint:errcheck
 }
 
 func (c *Client) serve(ctx context.Context) {
