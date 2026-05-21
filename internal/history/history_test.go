@@ -16,6 +16,29 @@ func line(text string) history.Line {
 	return history.Line{Text: text, Timestamp: time.Now()}
 }
 
+func TestNew(t *testing.T) {
+	b := history.New(5)
+	if b == nil {
+		t.Fatal("New() returned nil")
+	}
+
+	// It should be empty initially
+	lines := b.Tail(10)
+	if len(lines) != 0 {
+		t.Errorf("New buffer should be empty, got %d lines", len(lines))
+	}
+
+	// Verify capacity is set correctly by triggering an overflow
+	for i := 0; i < 7; i++ {
+		b.Append(line("text"))
+	}
+
+	lines = b.Tail(10)
+	if len(lines) != 5 {
+		t.Errorf("Buffer retained %d lines, expected capacity 5", len(lines))
+	}
+}
+
 func TestBuffer_AppendAndTail(t *testing.T) {
 	b := history.New(100)
 	b.Append(line("first"))
