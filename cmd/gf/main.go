@@ -118,7 +118,7 @@ func run(ctx context.Context) error {
 	timerCmdCtxPtr = cmdCtx
 	startPipelines(ctx, b, worldMgr, macroEng, histMgr, scope, cmdCtx, dispatcher)
 
-	startIPCServer(ctx, &cfg, b, histMgr, worldMgr)
+	startIPCServer(ctx, &cfg, b, histMgr, worldMgr, cancel)
 
 	slog.Info("gf ready", "version", version, "headless", *flagHeadless)
 
@@ -362,6 +362,7 @@ func startIPCServer(
 	b *bus.Bus,
 	histMgr *history.Manager,
 	worldMgr *world.Manager,
+	cancel context.CancelFunc,
 ) {
 	ipcCfg := ipc.Config{
 		SocketPath: config.DefaultSocketPath(),
