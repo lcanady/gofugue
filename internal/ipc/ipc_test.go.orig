@@ -476,20 +476,14 @@ func TestIPC_Config_ValidUnix(t *testing.T) {
 		errCh <- srv.Run(ctx)
 	}()
 
-	// Retry loop for dial to avoid flaky test failure.
-	var conn net.Conn
-	var err error
-	for i := 0; i < 10; i++ {
-		conn, err = net.Dial("unix", sockPath)
-		if err == nil {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if err != nil {
-		t.Fatalf("failed to dial unix socket after retries: %v", err)
-	}
+	// Wait a moment for the server to start listening.
+	time.Sleep(20 * time.Millisecond)
 
+	// Try to dial the Unix socket.
+	conn, err := net.Dial("unix", sockPath)
+	if err != nil {
+		t.Fatalf("failed to dial unix socket: %v", err)
+	}
 	conn.Close()
 
 	// Shutdown the server.
