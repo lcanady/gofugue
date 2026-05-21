@@ -127,8 +127,25 @@ func ImportReader(r io.Reader) (*Result, error) {
 // Flags may appear in any order before name=body.
 func parseDef(args string) (*macro.Macro, error) {
 	m := &macro.Macro{Type: macro.TypeTrigger, Enabled: true}
-	rest := strings.TrimSpace(args)
+	rest, err := parseDefFlags(m, strings.TrimSpace(args))
+	if err != nil {
+		return nil, err
+	}
 
+	// Remaining is "name=body".
+	eq := strings.Index(rest, "=")
+	if eq < 0 {
+		return nil, fmt.Errorf("missing '=' in /def %q", args)
+	}
+	m.Name = strings.TrimSpace(rest[:eq])
+	m.Body = strings.TrimSpace(rest[eq+1:])
+	if m.Name == "" {
+		return nil, fmt.Errorf("missing name in /def %q", args)
+	}
+	return m, nil
+}
+
+func parseDefFlags(m *macro.Macro, rest string) (string, error) {
 	for strings.HasPrefix(rest, "-") {
 		rest = rest[1:] // strip '-'
 		if len(rest) == 0 {
@@ -141,7 +158,7 @@ func parseDef(args string) (*macro.Macro, error) {
 			rest = strings.TrimLeft(rest, " \t")
 			pat, remaining, err := consumeQuotedOrWord(rest)
 			if err != nil {
-				return nil, fmt.Errorf("/def -t: %w", err)
+				return "", fmt.Errorf("/def -t: %w", err)
 			}
 			m.Pattern = pat
 			rest = remaining
@@ -151,7 +168,7 @@ func parseDef(args string) (*macro.Macro, error) {
 			numStr, remaining, _ := consumeQuotedOrWord(rest)
 			n, err := strconv.Atoi(numStr)
 			if err != nil {
-				return nil, fmt.Errorf("/def -p: expected integer, got %q", numStr)
+				return "", fmt.Errorf("/def -p: expected integer, got %q", numStr)
 			}
 			m.Priority = n
 			rest = remaining
@@ -233,33 +250,7 @@ func parseDef(args string) (*macro.Macro, error) {
 		}
 		rest = strings.TrimLeft(rest, " \t")
 	}
-
-	// For hook type, name=body may or may not have a pattern.
-	if m.Type == macro.TypeHook {
-		// "name=body" remaining
-		eq := strings.Index(rest, "=")
-		if eq < 0 {
-			return nil, fmt.Errorf("missing '=' in /def %q", args)
-		}
-		m.Name = strings.TrimSpace(rest[:eq])
-		m.Body = strings.TrimSpace(rest[eq+1:])
-		if m.Name == "" {
-			return nil, fmt.Errorf("missing name in /def %q", args)
-		}
-		return m, nil
-	}
-
-	// Remaining is "name=body".
-	eq := strings.Index(rest, "=")
-	if eq < 0 {
-		return nil, fmt.Errorf("missing '=' in /def %q", args)
-	}
-	m.Name = strings.TrimSpace(rest[:eq])
-	m.Body = strings.TrimSpace(rest[eq+1:])
-	if m.Name == "" {
-		return nil, fmt.Errorf("missing name in /def %q", args)
-	}
-	return m, nil
+	return rest, nil
 }
 
 // consumeQuotedOrWord reads a quoted string (single or double) or a bare word
