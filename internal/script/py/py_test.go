@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/kumakun/gofugue/internal/bus"
+	"github.com/kumakun/gofugue/internal/script"
 	"github.com/kumakun/gofugue/internal/script/py"
 )
 
@@ -60,8 +61,8 @@ func writeTempScript(t *testing.T, src string) string {
 	return f.Name()
 }
 
-func makeCB(echoCh chan<- string, setCh chan<- [2]string) py.Callbacks {
-	return py.Callbacks{
+func makeCB(echoCh chan<- string, setCh chan<- [2]string) script.Callbacks {
+	return script.Callbacks{
 		Send:            func(world, text string) error { return nil },
 		Echo:            func(s string) { echoCh <- s },
 		ForegroundWorld: func() string { return "mud" },
@@ -93,7 +94,7 @@ func parseJSONLines(r io.Reader) []map[string]json.RawMessage {
 
 func TestNew_ReturnsNonNil(t *testing.T) {
 	b := bus.New()
-	br := py.New(b, py.Callbacks{
+	br := py.New(b, script.Callbacks{
 		Send: func(world, text string) error { return nil },
 		Echo: func(string) {},
 	}, "/nonexistent/bridge.py")
@@ -104,7 +105,7 @@ func TestNew_ReturnsNonNil(t *testing.T) {
 
 func TestStop_BeforeLoad_IsNoop(t *testing.T) {
 	b := bus.New()
-	br := py.New(b, py.Callbacks{}, "/nonexistent/bridge.py")
+	br := py.New(b, script.Callbacks{}, "/nonexistent/bridge.py")
 	if err := br.Stop(); err != nil {
 		t.Errorf("Stop before Load should be noop, got: %v", err)
 	}
@@ -112,7 +113,7 @@ func TestStop_BeforeLoad_IsNoop(t *testing.T) {
 
 func TestStop_TwiceIsIdempotent(t *testing.T) {
 	b := bus.New()
-	br := py.New(b, py.Callbacks{}, "/nonexistent/bridge.py")
+	br := py.New(b, script.Callbacks{}, "/nonexistent/bridge.py")
 	_ = br.Stop()
 	if err := br.Stop(); err != nil {
 		t.Errorf("second Stop should not error, got: %v", err)
@@ -124,7 +125,7 @@ func TestLoad_MissingScript_ReturnsError(t *testing.T) {
 	bridgePy := findBridgePy(t)
 
 	b := bus.New()
-	br := py.New(b, py.Callbacks{
+	br := py.New(b, script.Callbacks{
 		Send: func(world, text string) error { return nil },
 		Echo: func(string) {},
 	}, bridgePy)
@@ -373,7 +374,7 @@ func TestBridge_HotReload_SecondLoadRestarts(t *testing.T) {
 
 	b := bus.New()
 	var count int32
-	br := py.New(b, py.Callbacks{
+	br := py.New(b, script.Callbacks{
 		Send:            func(world, text string) error { return nil },
 		Echo:            func(string) {},
 		ForegroundWorld: func() string { return "mud" },
@@ -432,7 +433,7 @@ func TestBridge_PythonEcho_CallsCallback(t *testing.T) {
 
 	b := bus.New()
 	echoCh := make(chan string, 4)
-	br := py.New(b, py.Callbacks{
+	br := py.New(b, script.Callbacks{
 		Send:            func(world, text string) error { return nil },
 		Echo:            func(s string) { echoCh <- s },
 		ForegroundWorld: func() string { return "mud" },

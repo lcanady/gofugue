@@ -29,17 +29,9 @@ import (
 
 	"github.com/dop251/goja"
 	"github.com/kumakun/gofugue/internal/bus"
+	"github.com/kumakun/gofugue/internal/script"
 	"github.com/kumakun/gofugue/internal/timers"
 )
-
-// Callbacks supplied by the caller to give the bridge access to GoFugue state.
-type Callbacks struct {
-	Send            func(world, text string) error
-	Echo            func(text string)
-	ForegroundWorld func() string
-	Getvar          func(name string) (string, bool)
-	Setvar          func(name, value string)
-}
 
 // jsTrigger is a trigger registered via tf.def.
 type jsTrigger struct {
@@ -50,7 +42,7 @@ type jsTrigger struct {
 
 // Bridge is the JS scripting engine for a session.
 type Bridge struct {
-	cb  Callbacks
+	cb  script.Callbacks
 	bus *bus.Bus
 
 	runtime *goja.Runtime
@@ -68,7 +60,7 @@ type Bridge struct {
 }
 
 // New creates a JS Bridge backed by the given event bus and callbacks.
-func New(b *bus.Bus, cb Callbacks) *Bridge {
+func New(b *bus.Bus, cb script.Callbacks) *Bridge {
 	return &Bridge{
 		cb:     cb,
 		bus:    b,
