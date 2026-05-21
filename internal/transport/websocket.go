@@ -16,10 +16,16 @@ type wsTransport struct {
 }
 
 func (t *wsTransport) Dial(ctx context.Context) (io.ReadWriteCloser, error) {
+	/* #nosec G402 */
+	tlsCfg := &tls.Config{
+		InsecureSkipVerify: t.skipVerify,
+	}
+	if t.skipVerify {
+		tlsCfg.VerifyConnection = verifySelfSigned
+	}
+
 	dialer := websocket.Dialer{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: t.skipVerify, //nolint:gosec // user opt-in
-		},
+		TLSClientConfig: tlsCfg,
 	}
 	conn, _, err := dialer.DialContext(ctx, t.url, http.Header{})
 	if err != nil {

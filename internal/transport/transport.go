@@ -5,10 +5,34 @@ package transport
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
 )
+
+// verifySelfSigned ignores x509.UnknownAuthorityError to permit self-signed certificates,
+// but continues to verify hostname match and certificate expiration.
+func verifySelfSigned(cs tls.ConnectionState) error {
+	opts := x509.VerifyOptions{
+		DNSName:       cs.ServerName,
+		Intermediates: x509.NewCertPool(),
+	}
+	for _, cert := range cs.PeerCertificates[1:] {
+		opts.Intermediates.AddCert(cert)
+	}
+	_, err := cs.PeerCertificates[0].Verify(opts)
+	if err != nil {
+		var unknownAuth x509.UnknownAuthorityError
+		if errors.As(err, &unknownAuth) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
 
 // Transport dials a remote endpoint and returns a bidirectional byte stream.
 type Transport interface {
