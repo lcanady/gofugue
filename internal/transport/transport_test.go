@@ -2,16 +2,8 @@ package transport_test
 
 import (
 	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
-	"crypto/tls"
-	"crypto/x509"
-	"crypto/x509/pkix"
-	"encoding/pem"
 	"fmt"
 	"io"
-	"math/big"
 	"net"
 	"net/http"
 	"strings"
@@ -50,7 +42,7 @@ func TestNew_MudScheme_ReturnsTCP(t *testing.T) {
 }
 
 func TestNew_MudsScheme_ReturnsTLS(t *testing.T) {
-	tr, err := transport.New(transport.Config{URL: "muds://localhost:4000", TLSSkipVerify: true})
+	tr, err := transport.New(transport.Config{URL: "muds://localhost:4000"})
 	if err != nil {
 		t.Fatalf("New(muds://): %v", err)
 	}
@@ -201,99 +193,6 @@ func TestTCP_Write_Close_Read(t *testing.T) {
 	rwc.Close() //nolint:errcheck
 }
 
-// ---------------------------------------------------------------------------
-// TLS (muds://) — self-signed cert with InsecureSkipVerify
-// ---------------------------------------------------------------------------
-
-func TestTLS_Dial_SkipVerify_Succeeds(t *testing.T) {
-	cert, err := selfSignedCert()
-	if err != nil {
-		t.Fatalf("selfSignedCert: %v", err)
-	}
-
-	ln, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{Certificates: []tls.Certificate{cert}})
-	if err != nil {
-		t.Fatalf("TLS listen: %v", err)
-	}
-	defer ln.Close()
-
-	go func() {
-		conn, err := ln.Accept()
-		if err != nil {
-			return
-		}
-		defer conn.Close()
-		buf := make([]byte, 64)
-		n, _ := conn.Read(buf)
-		conn.Write(buf[:n]) //nolint:errcheck
-	}()
-
-	tr, err := transport.New(transport.Config{
-		URL:           "muds://" + ln.Addr().String(),
-		TLSSkipVerify: true,
-	})
-	if err != nil {
-		t.Fatalf("New(muds://): %v", err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	rwc, err := tr.Dial(ctx)
-	if err != nil {
-		t.Fatalf("Dial muds:// with skip-verify: %v", err)
-	}
-	defer rwc.Close()
-
-	rwc.Write([]byte("tls-hello")) //nolint:errcheck
-	buf := make([]byte, 16)
-	n, _ := rwc.Read(buf)
-	if string(buf[:n]) != "tls-hello" {
-		t.Errorf("echo = %q, want tls-hello", buf[:n])
-	}
-}
-
-func TestTLS_Dial_NoSkipVerify_Fails_SelfSigned(t *testing.T) {
-	cert, err := selfSignedCert()
-	if err != nil {
-		t.Fatalf("selfSignedCert: %v", err)
-	}
-
-	ln, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{Certificates: []tls.Certificate{cert}})
-	if err != nil {
-		t.Fatalf("TLS listen: %v", err)
-	}
-	defer ln.Close()
-	go func() {
-		conn, err := ln.Accept()
-		if err != nil {
-			return
-		}
-		defer conn.Close()
-		// Complete the TLS handshake so the client receives the cert and can
-		// evaluate it (rather than seeing a broken-pipe before cert validation).
-		conn.(*tls.Conn).Handshake() //nolint:errcheck
-	}()
-
-	tr, err := transport.New(transport.Config{
-		URL:           "muds://127.0.0.1:" + portOf(ln.Addr().String()),
-		TLSSkipVerify: false,
-	})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	_, err = tr.Dial(ctx)
-	if err == nil {
-		t.Fatal("expected TLS verification error for self-signed cert without skip-verify")
-	}
-	if !isCertError(err) {
-		t.Logf("error (acceptable): %v", err)
-	}
-}
 
 // ---------------------------------------------------------------------------
 // WebSocket
@@ -506,49 +405,6 @@ func TestWebSocket_Close_SendsCloseFrame(t *testing.T) {
 // Helpers
 // ---------------------------------------------------------------------------
 
-// selfSignedCert generates an ephemeral self-signed ECDSA certificate valid
-// for 127.0.0.1 / localhost. Used only in tests.
-func selfSignedCert() (tls.Certificate, error) {
-	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-
-	template := &x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		Subject:      pkix.Name{CommonName: "localhost"},
-		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     time.Now().Add(time.Hour),
-		DNSNames:     []string{"localhost"},
-		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
-	}
-
-	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &priv.PublicKey, priv)
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-	keyDER, err := x509.MarshalECPrivateKey(priv)
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
-
-	return tls.X509KeyPair(certPEM, keyPEM)
-}
-
-func isCertError(err error) bool {
-	if err == nil {
-		return false
-	}
-	_, ok := err.(x509.CertificateInvalidError)
-	if ok {
-		return true
-	}
-	_, ok = err.(x509.UnknownAuthorityError)
-	return ok
-}
 
 func portOf(addr string) string {
 	_, port, _ := net.SplitHostPort(addr)

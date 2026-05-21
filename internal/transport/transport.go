@@ -25,9 +25,6 @@ type Config struct {
 	//   wt://host/path         WebTransport (HTTP/3 + QUIC)
 	URL string
 
-	// TLSSkipVerify disables certificate verification (dev/self-signed servers).
-	TLSSkipVerify bool
-
 	// TelnetEnabled controls whether the Telnet FSM wraps this transport.
 	// Some WebSocket MUD servers speak raw text frames with no IAC bytes.
 	TelnetEnabled bool
@@ -41,13 +38,13 @@ func New(cfg Config) (Transport, error) {
 	}
 	switch u.Scheme {
 	case "mud":
-		return &tcpTransport{host: u.Host, tls: false, skipVerify: cfg.TLSSkipVerify}, nil
+		return &tcpTransport{host: u.Host, tls: false}, nil
 	case "muds":
-		return &tcpTransport{host: u.Host, tls: true, skipVerify: cfg.TLSSkipVerify}, nil
+		return &tcpTransport{host: u.Host, tls: true}, nil
 	case "ws", "wss":
-		return &wsTransport{url: cfg.URL, skipVerify: cfg.TLSSkipVerify}, nil
+		return &wsTransport{url: cfg.URL}, nil
 	case "wt":
-		return &wtTransport{url: cfg.URL, skipVerify: cfg.TLSSkipVerify}, nil
+		return &wtTransport{url: cfg.URL}, nil
 	default:
 		return nil, fmt.Errorf("transport: unknown scheme %q (use mud/muds/ws/wss/wt)", u.Scheme)
 	}

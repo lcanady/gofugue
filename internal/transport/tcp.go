@@ -8,9 +8,8 @@ import (
 )
 
 type tcpTransport struct {
-	host       string
-	tls        bool
-	skipVerify bool
+	host string
+	tls  bool
 }
 
 func (t *tcpTransport) Dial(ctx context.Context) (io.ReadWriteCloser, error) {
@@ -21,8 +20,7 @@ func (t *tcpTransport) Dial(ctx context.Context) (io.ReadWriteCloser, error) {
 	}
 	if t.tls {
 		tlsCfg := &tls.Config{
-			InsecureSkipVerify: t.skipVerify, //nolint:gosec // user opt-in for self-signed
-			ServerName:         hostOnly(t.host),
+			ServerName: hostOnly(t.host),
 		}
 		tlsConn := tls.Client(conn, tlsCfg)
 		if err := tlsConn.HandshakeContext(ctx); err != nil {

@@ -11,15 +11,12 @@ import (
 )
 
 type wtTransport struct {
-	url        string
-	skipVerify bool
+	url string
 }
 
 func (t *wtTransport) Dial(ctx context.Context) (io.ReadWriteCloser, error) {
 	d := webtransport.Dialer{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: t.skipVerify, //nolint:gosec
-		},
+		TLSClientConfig: &tls.Config{},
 	}
 	_, session, err := d.Dial(ctx, t.url, http.Header{})
 	if err != nil {

@@ -170,13 +170,6 @@ tls_skip_verify = true
 	if avalon.Name != "avalon" {
 		t.Errorf("avalon.Name = %q, want %q", avalon.Name, "avalon")
 	}
-	testW, ok := cfg.Worlds["test"]
-	if !ok {
-		t.Fatal("world 'test' not found")
-	}
-	if !testW.TLSSkipVerify {
-		t.Error("test.TLSSkipVerify should be true")
-	}
 }
 
 func TestLoad_InvalidTOML_ReturnsError(t *testing.T) {

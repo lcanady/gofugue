@@ -105,7 +105,6 @@ func (m *Manager) Connect(ctx context.Context, name string, cfg *config.WorldCon
 
 	tr, err := transport.New(transport.Config{
 		URL:           w.Cfg.URL,
-		TLSSkipVerify: w.Cfg.TLSSkipVerify,
 		TelnetEnabled: telnetEnabled(w.Cfg),
 	})
 	if err != nil {
@@ -132,17 +131,6 @@ func (m *Manager) Connect(ctx context.Context, name string, cfg *config.WorldCon
 	w.cancel = cancel
 	w.State = StateConnected
 	w.mu.Unlock()
-
-	// Warn when TLS certificate verification is disabled so users who set
-	// tls_skip_verify = true for a dev server don't forget and leave themselves
-	// open to MITM on future connections.
-	if w.Cfg.TLSSkipVerify {
-		m.bus.Publish(bus.WorldRenderedEvent{WorldLineEvent: bus.WorldLineEvent{
-			WorldName: "local",
-			Text:      "[WARNING] TLS certificate verification is DISABLED for world " + name + " (tls_skip_verify = true)",
-			Attrs:     bus.LineAttrs{FG: 3, BG: -1}, // yellow
-		}})
-	}
 
 	// Publish CONNECT hook.
 	m.bus.Publish(bus.HookEvent{WorldName: name, Name: "CONNECT"})

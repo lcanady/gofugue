@@ -73,7 +73,6 @@ type WorldConfig struct {
 	Char     string `toml:"char"`     // character name (for /addworld)
 	Pass     string `toml:"pass"`     // password short-form alias (for /addworld)
 
-	TLSSkipVerify bool  `toml:"tls_skip_verify"`
 	TelnetEnabled *bool `toml:"telnet_enabled"` // nil = auto-detect from scheme
 
 	// KeepaliveInterval is how often (in seconds) to send a Telnet NOP to the

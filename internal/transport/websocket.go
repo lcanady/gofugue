@@ -11,15 +11,12 @@ import (
 )
 
 type wsTransport struct {
-	url        string
-	skipVerify bool
+	url string
 }
 
 func (t *wsTransport) Dial(ctx context.Context) (io.ReadWriteCloser, error) {
 	dialer := websocket.Dialer{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: t.skipVerify, //nolint:gosec // user opt-in
-		},
+		TLSClientConfig: &tls.Config{},
 	}
 	conn, _, err := dialer.DialContext(ctx, t.url, http.Header{})
 	if err != nil {
