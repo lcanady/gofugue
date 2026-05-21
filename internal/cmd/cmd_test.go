@@ -35,6 +35,30 @@ func makeCtx(output *[]string, sends *[]string) *cmd.Context {
 // Core dispatcher
 // ---------------------------------------------------------------------------
 
+func TestNew(t *testing.T) {
+	d := cmd.New()
+	if d == nil {
+		t.Fatal("expected New() to return a non-nil Dispatcher")
+	}
+
+	names := d.CommandNames()
+	if len(names) == 0 {
+		t.Error("expected Dispatcher to have registered builtins")
+	}
+
+	required := []string{"connect", "echo", "help", "quit"}
+	nameSet := make(map[string]bool)
+	for _, n := range names {
+		nameSet[n] = true
+	}
+
+	for _, req := range required {
+		if !nameSet[req] {
+			t.Errorf("expected builtin %q to be registered", req)
+		}
+	}
+}
+
 func TestDispatcher_NotACommand_ReturnsError(t *testing.T) {
 	d := cmd.New()
 	err := d.Dispatch(&cmd.Context{Output: func(string) {}}, "not a command")
