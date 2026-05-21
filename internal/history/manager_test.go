@@ -9,6 +9,31 @@ import (
 	"github.com/kumakun/gofugue/internal/history"
 )
 
+func TestNewManager(t *testing.T) {
+	capacity := 42
+	m := history.NewManager(capacity)
+	if m == nil {
+		t.Fatal("NewManager returned nil")
+	}
+
+	// Verify that the manager is properly initialized by adding a world
+	// and checking if its buffer respects the configured capacity.
+	b := m.World("test_world")
+	if b == nil {
+		t.Fatal("World() returned nil for a newly created Manager")
+	}
+
+	// Add more lines than the capacity to verify the capacity was set correctly
+	for i := 0; i < capacity+10; i++ {
+		b.Append(history.Line{Text: fmt.Sprintf("line %d", i), Timestamp: time.Now()})
+	}
+
+	lines := b.Tail(capacity + 20)
+	if len(lines) != capacity {
+		t.Errorf("buffer has capacity %d, but Tail returned %d lines", capacity, len(lines))
+	}
+}
+
 func TestManager_World_CreatesBuffer(t *testing.T) {
 	m := history.NewManager(100)
 	b := m.World("mud1")
