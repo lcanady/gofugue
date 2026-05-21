@@ -8,6 +8,18 @@ import (
 
 // --- Scope ---
 
+func TestNewScope(t *testing.T) {
+	s := expr.NewScope()
+	if s == nil {
+		t.Fatal("NewScope returned nil")
+	}
+
+	all := s.All()
+	if len(all) != 0 {
+		t.Errorf("NewScope should have an empty global scope, got %d items", len(all))
+	}
+}
+
 func TestScope_SetAndGet(t *testing.T) {
 	s := expr.NewScope()
 	s.Set("name", "gandalf")
