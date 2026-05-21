@@ -130,10 +130,14 @@ func run(ctx context.Context) error {
 }
 
 func loadConfig() config.Config {
-	cfg, err := config.Load(*flagConfig)
+	cfg, cfgWarnings, err := config.LoadWithWarnings(*flagConfig)
 	if err != nil {
 		slog.Warn("config load failed, using defaults", "path", *flagConfig, "err", err)
 		cfg = config.Defaults()
+	}
+	for _, w := range cfgWarnings {
+		slog.Warn("config security", "msg", w)
+		fmt.Fprintln(os.Stderr, "warning:", w)
 	}
 
 	if *flagIPCPort > 0 {
@@ -645,9 +649,9 @@ func startPipelines(
 							// Assemble from Char/Pass fields (set via /addworld).
 							if wcfg.Char != "" {
 								login = wcfg.Char
-								pass := wcfg.Pass
-								if pass == "" {
-									pass = wcfg.Password
+								pass, perr := wcfg.ResolvePassword()
+								if perr != nil {
+									slog.Warn("password_cmd failed", "world", he.WorldName, "err", perr)
 								}
 								if pass != "" {
 									login = wcfg.Char + "\n" + pass

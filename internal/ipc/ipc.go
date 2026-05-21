@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"net"
+	"os"
 	"sync"
 
 	"github.com/kumakun/gofugue/internal/bus"
@@ -186,6 +187,13 @@ func (s *Server) broadcast(ev bus.Event) {
 func (s *Server) listenUnix(ctx context.Context, path string) error {
 	l, err := net.Listen("unix", path)
 	if err != nil {
+		return err
+	}
+	// Restrict socket to the owner. Without this the file inherits the
+	// process umask (commonly 0755), letting any local user issue
+	// unauthenticated /cmd calls over IPC.
+	if err := os.Chmod(path, 0o600); err != nil {
+		l.Close()
 		return err
 	}
 	return s.accept(ctx, l)

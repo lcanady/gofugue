@@ -30,6 +30,10 @@ function gofugueBinaryPath(): string {
  * process, which already has worlds connected (causing phantom tabs on startup).
  */
 function killStaleGofugue(): void {
+  // lsof is POSIX-only; on Windows there's no equivalent one-liner, so
+  // skip the cleanup rather than spawning a misleading "command not
+  // found" error.
+  if (process.platform === 'win32') return;
   try {
     const pids: string[] = [];
 

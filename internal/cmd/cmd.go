@@ -624,6 +624,9 @@ func cmdLoad(ctx *Context, args string) error {
 	if path == "" {
 		return fmt.Errorf("usage: /load <file>")
 	}
+	if err := validateScriptPath(path, ".tf", ".gf"); err != nil {
+		return fmt.Errorf("/load: %w", err)
+	}
 	if ctx.LoadFile == nil {
 		return fmt.Errorf("/load: not available")
 	}
@@ -645,6 +648,9 @@ func cmdSave(ctx *Context, args string) error {
 	path := strings.TrimSpace(args)
 	if path == "" {
 		path = "macros.json"
+	}
+	if err := validateScriptPath(path, ".json"); err != nil {
+		return fmt.Errorf("/save: %w", err)
 	}
 	if ctx.SaveMacros == nil {
 		return fmt.Errorf("/save: not available")
@@ -938,6 +944,9 @@ func cmdJS(ctx *Context, args string) error {
 	if args == "" {
 		return fmt.Errorf("usage: /js <file>  or  /js -e <expr>")
 	}
+	if err := validateScriptPath(args, ".js", ".mjs"); err != nil {
+		return fmt.Errorf("/js: %w", err)
+	}
 	if ctx.LoadJS == nil {
 		return fmt.Errorf("/js: JS engine not available")
 	}
@@ -955,6 +964,9 @@ func cmdPy(ctx *Context, args string) error {
 	args = strings.TrimSpace(args)
 	if args == "" {
 		return fmt.Errorf("usage: /py <file>")
+	}
+	if err := validateScriptPath(args, ".py"); err != nil {
+		return fmt.Errorf("/py: %w", err)
 	}
 	if ctx.LoadPy == nil {
 		return fmt.Errorf("/py: Python bridge not available")

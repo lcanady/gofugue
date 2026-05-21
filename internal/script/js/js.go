@@ -89,6 +89,24 @@ func (br *Bridge) Stop() {
 	close(br.stopCh)
 }
 
+// scriptDeadline bounds any single RunString invocation. Without this
+// guard a malicious or buggy script (`while(true){}` or a catastrophic
+// backtracking regex via goja's regexp2-backed RegExp) wedges the
+// single JS event-loop goroutine and stalls every trigger.
+const scriptDeadline = 2 * time.Second
+
+// runWithDeadline runs src on the goja runtime, interrupting it if it
+// exceeds scriptDeadline. Must be called from the event-loop goroutine.
+func (br *Bridge) runWithDeadline(src string) (goja.Value, error) {
+	t := time.AfterFunc(scriptDeadline, func() {
+		br.runtime.Interrupt("script deadline exceeded")
+	})
+	defer t.Stop()
+	v, err := br.runtime.RunString(src)
+	br.runtime.ClearInterrupt()
+	return v, err
+}
+
 // Load reads and executes a JS file in the event loop.
 func (br *Bridge) Load(path string) error {
 	src, err := os.ReadFile(path)
@@ -97,7 +115,7 @@ func (br *Bridge) Load(path string) error {
 	}
 	errCh := make(chan error, 1)
 	br.taskCh <- func() {
-		_, e := br.runtime.RunString(string(src))
+		_, e := br.runWithDeadline(string(src))
 		errCh <- e
 	}
 	return <-errCh
@@ -111,7 +129,7 @@ func (br *Bridge) Eval(src string) (string, error) {
 	}
 	resCh := make(chan result, 1)
 	br.taskCh <- func() {
-		v, err := br.runtime.RunString(src)
+		v, err := br.runWithDeadline(src)
 		if err != nil {
 			resCh <- result{err: err}
 			return

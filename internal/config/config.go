@@ -69,9 +69,16 @@ type WorldConfig struct {
 	Name     string `toml:"name"`     // display name (defaults to map key)
 	Charset  string `toml:"charset"`  // e.g. "utf-8", "latin-1"
 	Login    string `toml:"login"`    // autologin string (sent on CONNECT hook)
-	Password string `toml:"password"` // stored password (consider keychain integration later)
+	Password string `toml:"password"` // stored password (discouraged — prefer PasswordCmd)
 	Char     string `toml:"char"`     // character name (for /addworld)
 	Pass     string `toml:"pass"`     // password short-form alias (for /addworld)
+
+	// PasswordCmd is a shell command whose stdout is used as the
+	// password. Trailing whitespace is trimmed. This lets users keep
+	// credentials in a secret manager (pass, op, gopass, macOS
+	// `security find-generic-password`, libsecret) instead of in
+	// plaintext on disk.
+	PasswordCmd string `toml:"password_cmd"`
 
 	TLSSkipVerify bool  `toml:"tls_skip_verify"`
 	TelnetEnabled *bool `toml:"telnet_enabled"` // nil = auto-detect from scheme
