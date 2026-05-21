@@ -162,6 +162,23 @@ func mudURL(addr string) string { return "mud://" + addr }
 // Manager.Add / pre-registration
 // ---------------------------------------------------------------------------
 
+func TestNewManager(t *testing.T) {
+	b := bus.New()
+	m := world.NewManager(b)
+	if m == nil {
+		t.Fatal("expected NewManager to return a non-nil Manager")
+	}
+
+	// Verify foreground is empty
+	if m.Foreground() != "" {
+		t.Errorf("expected empty foreground, got %q", m.Foreground())
+	}
+
+	// Verify we can add a world without panicking (ensures worlds map is initialized)
+	cfg := config.WorldConfig{Name: "test_init", URL: "tcp://127.0.0.1:1234"}
+	m.Add(cfg)
+}
+
 func TestManager_Add_RegistersWorld_NoConnection(t *testing.T) {
 	b := bus.New()
 	m := world.NewManager(b)
