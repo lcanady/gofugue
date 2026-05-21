@@ -178,12 +178,19 @@ func (s *Server) broadcast(ev bus.Event) {
 	}
 	data = append(data, '\n')
 
+	// Snapshot subscribers under the read lock so we don't hold s.mu while
+	// performing per-client I/O. Each c.write is a non-blocking enqueue
+	// onto the client's writer goroutine.
 	s.mu.RLock()
-	defer s.mu.RUnlock()
+	subs := make([]*Client, 0, len(s.clients))
 	for c := range s.clients {
 		if c.isSubscribed(ev.Type()) {
-			c.write(data)
+			subs = append(subs, c)
 		}
+	}
+	s.mu.RUnlock()
+	for _, c := range subs {
+		c.write(data)
 	}
 }
 
