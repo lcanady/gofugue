@@ -70,6 +70,26 @@ export function useGofugue() {
             ensureWorld(w.name);
             updateStatus({ WorldName: w.name, Connected: w.connected, LagMS: 0 });
           }
+          // Backfill scrollback for any world gofugue was already attached to
+          // before this frontend connected. Bus events aren't replayed on new
+          // subscribers, so without this the pane is blank until the next
+          // MUD-sent line.
+          return c.history(500).then((lines) => ({ worlds, lines }));
+        })
+        .then(({ worlds, lines }) => {
+          if (!lines?.length) return;
+          const target = worlds.find((w) => w.connected)?.name ?? worlds[0]?.name;
+          if (!target) return;
+          const { appendLine } = useMudStore.getState();
+          for (const text of lines) {
+            appendLine({
+              WorldName: target,
+              Text: text,
+              Attrs: { FG: -1, BG: -1, Bold: false, Underline: false, Italic: false, Reverse: false, FGRGB: [0, 0, 0], BGRGB: [0, 0, 0] },
+              Spans: [],
+              Gagged: false,
+            });
+          }
         })
         .catch(() => {
           // Not open yet — onStateChange will retry on next connect.
