@@ -8,6 +8,24 @@ import (
 	"github.com/kumakun/gofugue/internal/macro"
 )
 
+func TestNew(t *testing.T) {
+	e := macro.New()
+	if e == nil {
+		t.Fatal("expected New() to return a non-nil Engine")
+	}
+
+	// Verify maps are initialized by defining a dummy macro without panic.
+	err := e.Define(&macro.Macro{
+		Name:    "dummy",
+		Type:    macro.TypeTrigger,
+		Pattern: `dummy`,
+		Body:    "say dummy",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error defining macro on new Engine: %v", err)
+	}
+}
+
 func TestEngine_DefineTrigger_MatchesLine(t *testing.T) {
 	e := macro.New()
 	err := e.Define(&macro.Macro{
