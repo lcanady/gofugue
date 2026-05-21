@@ -73,6 +73,11 @@ type Server struct {
 	// historyTail is an optional callback used by the history.get handler.
 	// Set it via SetHistoryFunc before calling Run.
 	historyTail func(n int) []string
+
+	// historyTailRich is an optional callback used by history.tail; returns
+	// world-tagged lines with ANSI attrs preserved (any so this package stays
+	// free of an internal/history import).
+	historyTailRich func(n int) any
 }
 
 // New creates an IPC Server. Register handlers before calling Run.
@@ -96,6 +101,12 @@ func (s *Server) Handle(method string, h CommandHandler) {
 // fn receives the requested line count and returns text lines newest-last.
 func (s *Server) SetHistoryFunc(fn func(n int) []string) {
 	s.historyTail = fn
+}
+
+// SetHistoryRichFunc wires the history.tail handler. fn should return a JSON-
+// serialisable slice of world-tagged entries with text and ANSI attrs.
+func (s *Server) SetHistoryRichFunc(fn func(n int) any) {
+	s.historyTailRich = fn
 }
 
 // Run starts all configured listeners and blocks until ctx is cancelled.
@@ -261,6 +272,7 @@ func (s *Server) remove(c *Client) {
 func (s *Server) registerBuiltins() {
 	s.Handle("subscribe", handleSubscribe)
 	s.Handle("history.get", s.handleHistoryGet)
+	s.Handle("history.tail", s.handleHistoryTail)
 	// input and cmd handlers are registered by the application layer
 	// (they need access to WorldManager and MacroEngine).
 }
@@ -288,4 +300,18 @@ func (s *Server) handleHistoryGet(_ context.Context, _ *Client, params json.RawM
 		return []string{}, nil
 	}
 	return s.historyTail(p.N), nil
+}
+
+func (s *Server) handleHistoryTail(_ context.Context, _ *Client, params json.RawMessage) (any, error) {
+	var p struct {
+		N int `json:"n"`
+	}
+	p.N = 200
+	if len(params) > 0 {
+		_ = json.Unmarshal(params, &p)
+	}
+	if s.historyTailRich == nil {
+		return []any{}, nil
+	}
+	return s.historyTailRich(p.N), nil
 }

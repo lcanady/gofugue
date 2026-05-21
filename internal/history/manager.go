@@ -1,6 +1,10 @@
 package history
 
-import "sync"
+import (
+	"sync"
+
+	"github.com/kumakun/gofugue/internal/bus"
+)
 
 // Manager maintains one Buffer per world, created on demand.
 // It is safe for concurrent use.
@@ -59,6 +63,41 @@ func (m *Manager) TailAll(n int) []Line {
 	var out []Line
 	for _, b := range bufs {
 		out = append(out, b.Tail(n)...)
+	}
+	return out
+}
+
+// WorldLine is a scrollback Line tagged with the world it belongs to. Used by
+// the rich history IPC endpoint so frontends can backfill per-world panes with
+// full ANSI attributes intact.
+type WorldLine struct {
+	WorldName string `json:"world"`
+	Text      string `json:"text"`
+	Attrs     bus.LineAttrs `json:"attrs"`
+}
+
+// TailAllRich returns the last n lines per world, world-tagged and including
+// attrs. Gagged lines are dropped (consistent with what the user actually saw).
+func (m *Manager) TailAllRich(n int) []WorldLine {
+	m.mu.Lock()
+	type entry struct {
+		name string
+		buf  *Buffer
+	}
+	entries := make([]entry, 0, len(m.buffers))
+	for name, b := range m.buffers {
+		entries = append(entries, entry{name, b})
+	}
+	m.mu.Unlock()
+
+	var out []WorldLine
+	for _, e := range entries {
+		for _, l := range e.buf.Tail(n) {
+			if l.Gagged {
+				continue
+			}
+			out = append(out, WorldLine{WorldName: e.name, Text: l.Text, Attrs: l.Attrs})
+		}
 	}
 	return out
 }

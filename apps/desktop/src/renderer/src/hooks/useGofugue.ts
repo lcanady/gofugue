@@ -73,20 +73,20 @@ export function useGofugue() {
           // Backfill scrollback for any world gofugue was already attached to
           // before this frontend connected. Bus events aren't replayed on new
           // subscribers, so without this the pane is blank until the next
-          // MUD-sent line.
-          return c.history(500).then((lines) => ({ worlds, lines }));
+          // MUD-sent line. history.tail returns world-tagged lines with
+          // ANSI attrs intact, so colours are preserved.
+          return c.historyTail(500);
         })
-        .then(({ worlds, lines }) => {
+        .then((lines) => {
           if (!lines?.length) return;
-          const target = worlds.find((w) => w.connected)?.name ?? worlds[0]?.name;
-          if (!target) return;
-          const { appendLine } = useMudStore.getState();
-          for (const text of lines) {
+          const { appendLine, ensureWorld } = useMudStore.getState();
+          for (const l of lines) {
+            ensureWorld(l.world);
             appendLine({
-              WorldName: target,
-              Text: text,
-              Attrs: { FG: -1, BG: -1, Bold: false, Underline: false, Italic: false, Reverse: false, FGRGB: [0, 0, 0], BGRGB: [0, 0, 0] },
-              Spans: [],
+              WorldName: l.world,
+              Text: l.text,
+              Attrs: l.attrs,
+              Spans: null,
               Gagged: false,
             });
           }

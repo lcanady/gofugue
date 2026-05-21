@@ -386,6 +386,9 @@ func startIPCServer(
 		}
 		return out
 	})
+	ipcServer.SetHistoryRichFunc(func(n int) any {
+		return histMgr.TailAllRich(n)
+	})
 
 	ipcServer.Handle("input", func(_ context.Context, _ *ipc.Client, params json.RawMessage) (any, error) {
 		var p struct {

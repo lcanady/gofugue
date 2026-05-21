@@ -5,6 +5,7 @@ import type {
   HookEvent,
   StatusEvent,
   AnyEvent,
+  LineAttrs,
   JsonRpcNotification,
   JsonRpcResponse,
 } from './types.js';
@@ -146,6 +147,11 @@ export class GofugueClient {
 
   history(n = 200): Promise<string[]> {
     return this.call('history.get', { n });
+  }
+
+  /** World-tagged scrollback with ANSI attributes preserved. */
+  historyTail(n = 200): Promise<{ world: string; text: string; attrs: LineAttrs }[]> {
+    return this.call('history.tail', { n });
   }
 
   worldsStatus(): Promise<{ name: string; connected: boolean }[]> {
