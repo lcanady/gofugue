@@ -4,9 +4,11 @@
  * "Talking" items pre-fill the MUD communication commands with the selected
  * text, matching BeipMU's context-menu pattern.
  */
+import { useState } from 'react';
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import { cn } from '@renderer/lib/utils';
 import { useMudStore } from '@renderer/store/mud';
+import { TriggerEditorDialog } from '@renderer/features/triggers/TriggerEditorDialog';
 import type { GofugueClient } from '@gofugue/ipc';
 
 interface TerminalContextMenuProps {
@@ -21,6 +23,9 @@ function getSelection(): string {
 export function TerminalContextMenu({ children, client }: TerminalContextMenuProps) {
   const activeWorld = useMudStore((s) => s.activeWorld);
   const clearWorld = useMudStore((s) => s.clearWorld);
+
+  const [triggerEditorOpen, setTriggerEditorOpen] = useState(false);
+  const [triggerPattern, setTriggerPattern] = useState('');
 
   const send = (text: string) => {
     if (!activeWorld) return;
@@ -77,7 +82,10 @@ export function TerminalContextMenu({ children, client }: TerminalContextMenuPro
           <MenuItem
             onSelect={() => {
               const sel = getSelection();
-              if (sel) console.log('[GoFugue] Create trigger from:', sel); // TODO: open trigger editor
+              if (sel) {
+                setTriggerPattern(sel);
+                setTriggerEditorOpen(true);
+              }
             }}
             disabled={false}
           >
@@ -92,6 +100,12 @@ export function TerminalContextMenu({ children, client }: TerminalContextMenuPro
           </MenuItem>
         </ContextMenu.Content>
       </ContextMenu.Portal>
+
+      <TriggerEditorDialog
+        open={triggerEditorOpen}
+        onOpenChange={setTriggerEditorOpen}
+        initialPattern={triggerPattern}
+      />
     </ContextMenu.Root>
   );
 }
