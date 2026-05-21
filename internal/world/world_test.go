@@ -1060,3 +1060,33 @@ func TestConnect_TLSSkipVerify_EmitsLocalWarning(t *testing.T) {
 	mu.Unlock()
 	t.Errorf("expected a TLS skip-verify warning in local echo, got local lines: %v", got)
 }
+
+// ---------------------------------------------------------------------------
+// NameFromURL
+// ---------------------------------------------------------------------------
+
+func TestNameFromURL(t *testing.T) {
+	tests := []struct {
+		url  string
+		want string
+	}{
+		{"mud://example.com:4000", "example.com"},
+		{"ws://example.com/path", "example.com"},
+		{"wss://example.com:443/path", "example.com"},
+		{"example.com:4000", "example.com"},
+		{"mud://example.com", "example.com"},
+		{"example.com", "example.com"},
+		{"", "world"},
+		{"mud://127.0.0.1:9999", "127.0.0.1"},
+		{"wt://[::1]:4000", "[::1]"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.url, func(t *testing.T) {
+			got := world.NameFromURL(tt.url)
+			if got != tt.want {
+				t.Errorf("NameFromURL(%q) = %q, want %q", tt.url, got, tt.want)
+			}
+		})
+	}
+}
