@@ -354,6 +354,16 @@ func buildCommandContext(
 			return false
 		},
 		Quit: func() {
+			// In headless mode gofugue is a backend service for an external
+			// frontend (Electron, web). The user typing /quit means "quit
+			// this world", not "kill the daemon" — the frontend owns app
+			// lifecycle. Disconnect the foreground world and stay alive.
+			if *flagHeadless {
+				if fg := worldMgr.Foreground(); fg != "" {
+					_ = worldMgr.Disconnect(fg)
+				}
+				return
+			}
 			b.Publish(bus.HookEvent{WorldName: "", Name: "QUIT"})
 			cancel()
 		},

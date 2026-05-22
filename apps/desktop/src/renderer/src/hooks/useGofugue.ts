@@ -50,7 +50,11 @@ export function useGofugue() {
           useLayoutStore.getState().ensureTerminalForWorld(ev.WorldName);
           await handleAutoLogin(c, ev.WorldName);
         } else if (ev.Name === 'QUIT') {
-          window.gofugue?.quit?.();
+          // QUIT hook means gofugue is shutting down (signal, /quit in TUI
+          // mode, fatal error). Drop the local world tab — do NOT call
+          // app.quit, since gofugue may simply have crashed and the user
+          // still wants the app open to reconnect.
+          useMudStore.getState().removeWorld(ev.WorldName);
         }
       }),
     ];
