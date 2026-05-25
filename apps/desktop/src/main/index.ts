@@ -86,7 +86,7 @@ function startGofugue(): void {
 
   const binaryPath = gofugueBinaryPath();
 
-  gofugueProc = spawn(binaryPath, ['--headless'], {
+  gofugueProc = spawn(binaryPath, ['--headless', '--ipc-ws-port', '7879'], {
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: false,
   });
