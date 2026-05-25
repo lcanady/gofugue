@@ -11,3 +11,5 @@ out/
 *.local
 apps/desktop/resources/gf*
 packages/*/dist/
+apps/desktop/test-results
+apps/desktop/playwright-report
