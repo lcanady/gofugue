@@ -14,9 +14,9 @@ test.describe('IPC connection states', () => {
     await page.goto('/');
     // The IPC state text is "connecting" or "disconnected"
     const status = page.getByRole('status');
-    // Should NOT show "gofugue" (which only appears when connected)
-    // Should show the connecting state text (the ipcState value, not "gofugue")
-    await expect(status).not.toContainText('gofugue', { timeout: 500 }).catch(() => {});
+    // Should NOT show "connected" (which only appears when connected)
+    // Should show the connecting state text (the ipcState value, not "connected")
+    await expect(status).not.toContainText('connected', { timeout: 500 }).catch(() => {});
   });
 
   test('status bar shows IPC connected state after WebSocket handshake', async ({
@@ -26,8 +26,8 @@ test.describe('IPC connection states', () => {
     await page.goto('/');
     await mockIPC.waitConnected();
 
-    // Once connected the status bar shows "gofugue" (the connected label).
-    await expect(page.getByRole('status')).toContainText('gofugue', { timeout: 3_000 });
+    // Once connected the status bar shows "connected" (the connected label).
+    await expect(page.getByRole('status')).toContainText('connected', { timeout: 3_000 });
   });
 
   test('CONNECT hook creates a world tab', async ({ page, mockIPC }) => {
@@ -36,20 +36,7 @@ test.describe('IPC connection states', () => {
 
     mockIPC.pushEvent('hook', hookConnect('avalon'));
 
-    await expect(page.getByRole('tab', { name: /avalon/ })).toBeVisible({ timeout: 2_000 });
-  });
-
-  test('world tab shows a connection indicator dot', async ({ page, mockIPC }) => {
-    await page.goto('/');
-    await mockIPC.waitConnected();
-
-    mockIPC.pushEvent('hook', hookConnect('mymush'));
-    mockIPC.pushEvent('status', statusEvent('mymush', true, 0));
-
-    const tab = page.getByRole('tab', { name: /mymush/ });
-    await expect(tab).toBeVisible({ timeout: 2_000 });
-    // The green dot has aria-label="connected"
-    await expect(tab.getByLabel('connected')).toBeVisible();
+    await expect(page.locator('.lm_tab', { hasText: 'avalon' })).toBeVisible({ timeout: 2_000 });
   });
 
   test('status bar shows CONNECTED for the active world', async ({ page, mockIPC }) => {
@@ -85,14 +72,14 @@ test.describe('IPC connection states', () => {
     await expect(page.getByRole('status')).toContainText('DISCONNECTED', { timeout: 2_000 });
   });
 
-  test('clicking + opens world manager, adding a world and connecting dispatches /connect cmd', async ({
+  test('clicking connect world opens world manager, adding a world and connecting dispatches /connect cmd', async ({
     page,
     mockIPC,
   }) => {
     await page.goto('/');
     await mockIPC.waitConnected();
 
-    await page.getByRole('button', { name: 'Open new connection' }).click();
+    await page.getByRole('button', { name: 'connect world' }).click();
     const dialog = page.getByRole('dialog', { name: 'Worlds' });
     await expect(dialog).toBeVisible({ timeout: 2_000 });
 

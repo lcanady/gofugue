@@ -4,6 +4,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -205,6 +206,7 @@ func (d *Dispatcher) registerBuiltins() {
 	d.Register("hilite", cmdHilite)
 	d.Register("substitute", cmdSubstitute)
 	d.Register("undef", cmdUndef)
+	d.Register("alias", cmdAlias)
 	d.Register("list", cmdList)
 	d.Register("set", cmdSet)
 	d.Register("unset", cmdUnset)
@@ -510,9 +512,81 @@ func cmdUndef(ctx *Context, args string) error {
 		return fmt.Errorf("usage: /undef <name>")
 	}
 	if !ctx.UndefMacro(name) {
-		return fmt.Errorf("/undef: no macro named %q", name)
+		// Try fallback to alias names or trigger names
+		fallback := false
+		if ctx.World != "" && ctx.UndefMacro("alias_"+ctx.World+"_"+name) {
+			fallback = true
+		} else if ctx.UndefMacro("alias__" + name) {
+			fallback = true
+		} else if ctx.World != "" && ctx.UndefMacro("trg_"+ctx.World+"_"+name) {
+			fallback = true
+		} else if ctx.UndefMacro("trg_" + name) {
+			fallback = true
+		}
+		if !fallback {
+			return fmt.Errorf("/undef: no macro named %q", name)
+		}
 	}
 	ctx.output(fmt.Sprintf("Removed %s.", name))
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// /alias [-w world] name=body
+// ---------------------------------------------------------------------------
+
+func cmdAlias(ctx *Context, args string) error {
+	if ctx.DefMacro == nil {
+		return fmt.Errorf("/alias: not available")
+	}
+	if args == "" {
+		return fmt.Errorf("usage: /alias [-w world] name=body")
+	}
+
+	rest := strings.TrimSpace(args)
+	worldScope := ""
+	if strings.HasPrefix(rest, "-w") {
+		rest = rest[2:]
+		rest = strings.TrimLeft(rest, " \t")
+		w, remaining, err := consumeQuoted(rest)
+		if err != nil {
+			return fmt.Errorf("/alias -w: %w", err)
+		}
+		worldScope = w
+		rest = remaining
+	}
+
+	eq := strings.Index(rest, "=")
+	if eq < 0 {
+		return fmt.Errorf("missing '=' in /alias %q", args)
+	}
+	aliasName := strings.TrimSpace(rest[:eq])
+	body := strings.TrimSpace(rest[eq+1:])
+	if aliasName == "" {
+		return fmt.Errorf("empty alias name")
+	}
+
+	var name string
+	if worldScope != "" {
+		name = "alias_" + worldScope + "_" + aliasName
+	} else {
+		name = "alias__" + aliasName
+	}
+
+	m := &macro.Macro{
+		Name:      name,
+		Type:      macro.TypeAlias,
+		MatchMode: macro.MatchRegexp,
+		Pattern:   "^" + regexp.QuoteMeta(aliasName) + "$",
+		Body:      body,
+		World:     worldScope,
+		Enabled:   true,
+	}
+
+	if err := ctx.DefMacro(m); err != nil {
+		return fmt.Errorf("/alias %s: %w", aliasName, err)
+	}
+	ctx.output(fmt.Sprintf("Alias %s defined.", aliasName))
 	return nil
 }
 

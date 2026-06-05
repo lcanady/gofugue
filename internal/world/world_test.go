@@ -1107,3 +1107,68 @@ func TestNameFromURL(t *testing.T) {
 		})
 	}
 }
+
+// ---------------------------------------------------------------------------
+// M-4: Sensitive lines (Telnet IAC WILL ECHO / WONT ECHO)
+// ---------------------------------------------------------------------------
+
+// TestSensitiveLines verifies that lines received while the server has Telnet
+// ECHO active (IAC WILL ECHO) are marked Sensitive=true, and that lines before
+// and after the echo window are Sensitive=false.
+//
+// Protocol flow:
+//  1. Server sends IAC WILL ECHO  → EchoEnabled = true (password prompt window)
+//  2. Server sends "Password: "   → must arrive as Sensitive=true
+//  3. Server sends IAC WONT ECHO  → EchoEnabled = false (normal output resumes)
+//  4. Server sends "Welcome back" → must arrive as Sensitive=false
+func TestSensitiveLines(t *testing.T) {
+	addr, accept := mudListen(t)
+	b := bus.New()
+	c := subscribe(b)
+	m := world.NewManager(b)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cfg := &config.WorldConfig{Name: "s", URL: mudURL(addr)}
+	if err := m.Connect(ctx, "s", cfg); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	defer m.Disconnect("s") //nolint:errcheck
+
+	mc := waitMudConn(t, accept)
+	defer mc.close()
+	c.waitHook(t, "CONNECT", 3*time.Second)
+
+	// Telnet constants.
+	const (
+		IAC  = byte(255)
+		WILL = byte(251)
+		WONT = byte(252)
+		ECHO = byte(1)
+	)
+
+	// 1. Activate server-echo (password window).
+	mc.conn.Write([]byte{IAC, WILL, ECHO}) //nolint:errcheck
+
+	// 2. Send the "password" prompt line inside the echo window.
+	mc.conn.Write([]byte("Password: \r\n")) //nolint:errcheck
+
+	// Wait for the line to arrive.
+	passwordLine := c.waitLine(t, "Password:", 3*time.Second)
+
+	// 3. Close the echo window.
+	mc.conn.Write([]byte{IAC, WONT, ECHO}) //nolint:errcheck
+
+	// 4. Send a normal line after the echo window closes.
+	mc.conn.Write([]byte("Welcome back.\r\n")) //nolint:errcheck
+	normalLine := c.waitLine(t, "Welcome back", 3*time.Second)
+
+	// Assertions.
+	if !passwordLine.Sensitive {
+		t.Errorf("expected Password line to be Sensitive=true, got Sensitive=false (Text=%q)", passwordLine.Text)
+	}
+	if normalLine.Sensitive {
+		t.Errorf("expected Welcome line to be Sensitive=false, got Sensitive=true (Text=%q)", normalLine.Text)
+	}
+}

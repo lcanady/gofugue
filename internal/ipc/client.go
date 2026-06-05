@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -40,15 +42,33 @@ type Client struct {
 	closed    chan struct{}
 
 	consecutiveDrops atomic.Int32
+
+	// authenticated tracks whether this client has passed the token auth check.
+	// It starts false; set to true after a successful "auth" call. When the
+	// server's Token is empty, it is set to true on connection so that no auth
+	// step is required (backwards-compatible).
+	authenticated bool
+
+	// skipAuth is true for Unix socket clients when Config.UnixSkipsAuth is set.
+	// In that case authenticated is also pre-set to true.
+	skipAuth bool
 }
 
 func newClient(conn net.Conn, s *Server) *Client {
+	return newClientWithAuth(conn, s, false)
+}
+
+func newClientWithAuth(conn net.Conn, s *Server, skipAuth bool) *Client {
+	// Pre-authenticate when: no token configured, or Unix socket with UnixSkipsAuth.
+	preAuthed := s.cfg.Token == "" || skipAuth
 	c := &Client{
-		conn:       conn,
-		server:     s,
-		subscribed: make(map[bus.EventType]struct{}),
-		writeCh:    make(chan []byte, writeQueueSize),
-		closed:     make(chan struct{}),
+		conn:          conn,
+		server:        s,
+		subscribed:    make(map[bus.EventType]struct{}),
+		writeCh:       make(chan []byte, writeQueueSize),
+		closed:        make(chan struct{}),
+		authenticated: preAuthed,
+		skipAuth:      skipAuth,
 	}
 	go c.writeLoop()
 	return c
@@ -134,6 +154,9 @@ func (c *Client) serve(ctx context.Context) {
 	}()
 
 	scanner := bufio.NewScanner(c.conn)
+	// Cap single-frame size at 1 MiB to prevent memory exhaustion from
+	// oversized IPC messages. The initial buffer is 64 KiB (default).
+	scanner.Buffer(make([]byte, 64*1024), 1*1024*1024)
 	for scanner.Scan() {
 		select {
 		case <-ctx.Done():
@@ -151,15 +174,58 @@ func (c *Client) serve(ctx context.Context) {
 			continue
 		}
 
+		// --- Token authentication gate ---
+		// If the server requires auth and this client is not yet authenticated,
+		// the ONLY acceptable method is "auth". Anything else gets an auth error
+		// and the connection is closed immediately.
+		if !c.authenticated {
+			if req.Method != "auth" {
+				c.sendErrorDirect(req.ID, -32001, "authentication required: send auth first")
+				return
+			}
+			// Handle the auth call inline — do not go through the handler map so
+			// that no other code can accidentally bypass the gate.
+			var p struct {
+				Token string `json:"token"`
+			}
+			if len(req.Params) > 0 {
+				_ = json.Unmarshal(req.Params, &p)
+			}
+			if p.Token != c.server.cfg.Token {
+				c.sendErrorDirect(req.ID, -32001, "authentication failed: bad token")
+				return
+			}
+			c.authenticated = true
+			c.sendResult(req.ID, map[string]bool{"ok": true})
+			continue
+		}
+
+		// Already authenticated — handle normally.
+		// "auth" after auth is also allowed (idempotent).
+		if req.Method == "auth" {
+			c.sendResult(req.ID, map[string]bool{"ok": true})
+			continue
+		}
+
 		h, ok := c.server.handlers[req.Method]
 		if !ok {
-			c.sendError(req.ID, -32601, "method not found: "+req.Method)
+			// Sanitize the method name before reflecting it in the error message
+			// to prevent log injection via method strings containing newlines or
+			// other control characters.
+			safeMethod := strings.Map(func(r rune) rune {
+				if r < 0x20 || r == 0x7f {
+					return '?'
+				}
+				return r
+			}, req.Method)
+			c.sendError(req.ID, -32601, "method not found: "+safeMethod)
 			continue
 		}
 
 		result, err := h(ctx, c, req.Params)
 		if err != nil {
-			c.sendError(req.ID, -32000, err.Error())
+			slog.Error("ipc handler error", "method", req.Method, "err", err)
+			c.sendError(req.ID, -32000, "internal error")
 			continue
 		}
 		c.sendResult(req.ID, result)
@@ -171,6 +237,22 @@ func (c *Client) sendResult(id *json.RawMessage, result any) {
 	data, _ := json.Marshal(resp)
 	data = append(data, '\n')
 	c.write(data)
+}
+
+// sendErrorDirect writes an error response synchronously to the connection and
+// then force-closes it. Used for auth failures where the write queue may not
+// drain in time before close is issued.
+func (c *Client) sendErrorDirect(id *json.RawMessage, code int, msg string) {
+	resp := Response{
+		JSONRPC: "2.0",
+		ID:      id,
+		Error:   &RPCError{Code: code, Message: msg},
+	}
+	data, _ := json.Marshal(resp)
+	data = append(data, '\n')
+	_ = c.conn.SetWriteDeadline(time.Now().Add(writeDeadline))
+	_, _ = c.conn.Write(data)
+	c.forceClose()
 }
 
 func (c *Client) sendError(id *json.RawMessage, code int, msg string) {

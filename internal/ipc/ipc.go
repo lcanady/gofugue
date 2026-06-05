@@ -12,11 +12,12 @@ package ipc
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/kumakun/gofugue/internal/bus"
@@ -56,10 +57,30 @@ type Config struct {
 	SocketPath string // Unix domain socket path (empty = disabled)
 	TCPAddr    string // e.g. "127.0.0.1:7878" (empty = disabled)
 	WSAddr     string // e.g. "127.0.0.1:7879" (empty = disabled)
+
+	// Token is the shared secret clients must present via the "auth" method as
+	// their first RPC message. Empty string disables authentication entirely
+	// (backwards-compatible default).
+	Token string
+
+	// UnixSkipsAuth, when true, allows Unix socket connections to bypass the
+	// token check. The socket file is already restricted to mode 0600 (owner
+	// only), so file-system permissions are the auth mechanism for Unix paths.
+	// TCP and WebSocket connections always require the token when Token != "".
+	UnixSkipsAuth bool
+
+	// MaxConnections is the maximum number of simultaneously connected IPC
+	// clients across all transports. Zero means use the default (64). If a
+	// new connection would exceed this limit it is rejected with a JSON-RPC
+	// error and immediately closed.
+	MaxConnections int
 }
 
 // CommandHandler is called when a client sends a known method.
 type CommandHandler func(ctx context.Context, client *Client, params json.RawMessage) (any, error)
+
+// defaultMaxConnections is used when Config.MaxConnections is zero.
+const defaultMaxConnections = 64
 
 // Server manages IPC listeners and connected clients.
 type Server struct {
@@ -69,6 +90,8 @@ type Server struct {
 
 	mu      sync.RWMutex
 	clients map[*Client]struct{}
+
+	connCount atomic.Int64
 
 	// historyTail is an optional callback used by the history.get handler.
 	// Set it via SetHistoryFunc before calling Run.
@@ -176,8 +199,23 @@ func (s *Server) Run(ctx context.Context) error {
 	return err
 }
 
-// Broadcast pushes a bus event to all clients that have subscribed to its type.
+// broadcast pushes a bus event to all clients that have subscribed to its type.
+// Events carrying Sensitive=true (e.g. lines received during Telnet ECHO suppression,
+// which indicates a password prompt) are silently dropped to prevent credential leakage
+// over the IPC channel.
 func (s *Server) broadcast(ev bus.Event) {
+	// Guard: never send sensitive lines to IPC subscribers.
+	switch e := ev.(type) {
+	case bus.WorldLineEvent:
+		if e.Sensitive {
+			return
+		}
+	case bus.WorldRenderedEvent:
+		if e.Sensitive {
+			return
+		}
+	}
+
 	n := Notification{
 		JSONRPC: "2.0",
 		Method:  string(ev.Type()),
@@ -205,6 +243,27 @@ func (s *Server) broadcast(ev bus.Event) {
 	}
 }
 
+func (s *Server) listenUnixConn(ctx context.Context, l net.Listener) error {
+	go func() {
+		<-ctx.Done()
+		l.Close()
+	}()
+	for {
+		conn, err := l.Accept()
+		if err != nil {
+			return err
+		}
+		// Unix socket connections may skip token auth when UnixSkipsAuth is set;
+		// file-system permissions (mode 0600) on the socket are the gate.
+		skipAuth := s.cfg.UnixSkipsAuth
+		c := newClientWithAuth(conn, s, skipAuth)
+		if !s.addClientGuarded(c) {
+			continue
+		}
+		go c.serve(ctx)
+	}
+}
+
 func (s *Server) listenUnix(ctx context.Context, path string) error {
 	// Ensure the parent directory exists. Without this, a fresh install
 	// (no ~/.config/gofugue) fails to bind and historically cascaded into
@@ -212,27 +271,22 @@ func (s *Server) listenUnix(ctx context.Context, path string) error {
 	if dir := filepath.Dir(path); dir != "" {
 		_ = os.MkdirAll(dir, 0o700)
 	}
-	// Clean up a stale socket from a previous ungraceful exit. We do this
-	// only if no process is listening on it — probe by dialing.
-	if _, err := os.Stat(path); err == nil {
-		if conn, derr := net.DialTimeout("unix", path, 100*time.Millisecond); derr == nil {
-			conn.Close()
-			return fmt.Errorf("listen unix %s: another gofugue is already running", path)
-		}
-		_ = os.Remove(path)
-	}
+	// Unconditionally remove any stale socket. Ignoring errors covers both
+	// "no such file" (first start) and other transient failures. This avoids
+	// the TOCTOU race that a stat+dial+remove sequence introduces.
+	_ = os.Remove(path)
+
+	// Set umask to 0177 before Listen so the kernel creates the socket with
+	// mode 0600 (owner r/w only) atomically. This eliminates the window that
+	// a post-Listen os.Chmod would leave open. We restore the previous umask
+	// immediately after the file is created.
+	old := syscall.Umask(0o177)
 	l, err := net.Listen("unix", path)
+	syscall.Umask(old)
 	if err != nil {
 		return err
 	}
-	// Restrict socket to the owner. Without this the file inherits the
-	// process umask (commonly 0755), letting any local user issue
-	// unauthenticated /cmd calls over IPC.
-	if err := os.Chmod(path, 0o600); err != nil {
-		l.Close()
-		return err
-	}
-	return s.accept(ctx, l)
+	return s.listenUnixConn(ctx, l)
 }
 
 func (s *Server) listenTCP(ctx context.Context, addr string) error {
@@ -255,9 +309,9 @@ func (s *Server) accept(ctx context.Context, l net.Listener) error {
 			return err
 		}
 		c := newClient(conn, s)
-		s.mu.Lock()
-		s.clients[c] = struct{}{}
-		s.mu.Unlock()
+		if !s.addClientGuarded(c) {
+			continue
+		}
 		go c.serve(ctx)
 	}
 }
@@ -266,6 +320,38 @@ func (s *Server) remove(c *Client) {
 	s.mu.Lock()
 	delete(s.clients, c)
 	s.mu.Unlock()
+	s.connCount.Add(-1)
+}
+
+// maxConns returns the effective connection limit.
+func (s *Server) maxConns() int64 {
+	if s.cfg.MaxConnections > 0 {
+		return int64(s.cfg.MaxConnections)
+	}
+	return defaultMaxConnections
+}
+
+// addClientGuarded registers a client if the connection limit allows it.
+// Returns true if the client was accepted, false if rejected (and closed).
+func (s *Server) addClientGuarded(c *Client) bool {
+	if s.connCount.Add(1) > s.maxConns() {
+		s.connCount.Add(-1)
+		// Send a JSON-RPC error then drop.
+		resp := Response{
+			JSONRPC: "2.0",
+			Error:   &RPCError{Code: -32000, Message: "too many connections"},
+		}
+		data, _ := json.Marshal(resp)
+		data = append(data, '\n')
+		_ = c.conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
+		_, _ = c.conn.Write(data)
+		c.forceClose()
+		return false
+	}
+	s.mu.Lock()
+	s.clients[c] = struct{}{}
+	s.mu.Unlock()
+	return true
 }
 
 // registerBuiltins wires the standard JSON-RPC methods.
@@ -288,6 +374,10 @@ func handleSubscribe(_ context.Context, c *Client, params json.RawMessage) (any,
 	return map[string]bool{"ok": true}, nil
 }
 
+// maxHistoryN is the maximum number of lines a client may request in a single
+// history.get or history.tail call. Requests above this are silently clamped.
+const maxHistoryN = 10000
+
 func (s *Server) handleHistoryGet(_ context.Context, _ *Client, params json.RawMessage) (any, error) {
 	var p struct {
 		N int `json:"n"`
@@ -295,6 +385,12 @@ func (s *Server) handleHistoryGet(_ context.Context, _ *Client, params json.RawM
 	p.N = 100 // default
 	if len(params) > 0 {
 		_ = json.Unmarshal(params, &p)
+	}
+	if p.N < 0 {
+		p.N = 0
+	}
+	if p.N > maxHistoryN {
+		p.N = maxHistoryN
 	}
 	if s.historyTail == nil {
 		return []string{}, nil
@@ -309,6 +405,12 @@ func (s *Server) handleHistoryTail(_ context.Context, _ *Client, params json.Raw
 	p.N = 200
 	if len(params) > 0 {
 		_ = json.Unmarshal(params, &p)
+	}
+	if p.N < 0 {
+		p.N = 0
+	}
+	if p.N > maxHistoryN {
+		p.N = maxHistoryN
 	}
 	if s.historyTailRich == nil {
 		return []any{}, nil

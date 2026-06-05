@@ -53,6 +53,7 @@ type Bridge struct {
 	bridgePy string // path to bridge.py
 
 	mu        sync.Mutex
+	writeMu   sync.Mutex // serializes all writes to stdin via br.enc
 	cmd       *exec.Cmd
 	enc       *json.Encoder
 	triggers  []*pyTrigger
@@ -180,6 +181,20 @@ func (br *Bridge) Stop() error {
 	return err
 }
 
+// writeJSON encodes and writes msg to the Python subprocess's stdin.
+// Access to enc.Encode is serialized via writeMu to prevent interleaved writes.
+func (br *Bridge) writeJSON(msg any) {
+	br.mu.Lock()
+	enc := br.enc
+	br.mu.Unlock()
+	if enc == nil {
+		return
+	}
+	br.writeMu.Lock()
+	defer br.writeMu.Unlock()
+	_ = enc.Encode(msg)
+}
+
 // watchLines subscribes to rendered world lines and forwards one TRIGGER event
 // per matched trigger, each with its own capture groups.
 func (br *Bridge) watchLines(ctx context.Context) {
@@ -198,7 +213,6 @@ func (br *Bridge) watchLines(ctx context.Context) {
 				continue
 			}
 			br.mu.Lock()
-			enc := br.enc
 			type match struct {
 				name string
 				caps []string
@@ -210,16 +224,13 @@ func (br *Bridge) watchLines(ctx context.Context) {
 				}
 			}
 			br.mu.Unlock()
-			if enc == nil {
-				continue
-			}
 			for _, m := range matches {
-				enc.Encode(map[string]any{ //nolint:errcheck
-					"t":      "event",
-					"name":   "TRIGGER",
-					"world":  wl.WorldName,
-					"line":   wl.Text,
-					"caps":   m.caps,
+				br.writeJSON(map[string]any{
+					"t":       "event",
+					"name":    "TRIGGER",
+					"world":   wl.WorldName,
+					"line":    wl.Text,
+					"caps":    m.caps,
 					"trigger": m.name,
 				})
 			}
@@ -241,18 +252,13 @@ func (br *Bridge) watchGMCP(ctx context.Context) {
 				return
 			}
 			ge := ev.(bus.GMCPEvent)
-			br.mu.Lock()
-			enc := br.enc
-			br.mu.Unlock()
-			if enc != nil {
-				enc.Encode(map[string]any{ //nolint:errcheck
-					"t":      "event",
-					"name":   "GMCP",
-					"world":  ge.WorldName,
-					"module": ge.Module,
-					"data":   json.RawMessage(ge.Data),
-				})
-			}
+			br.writeJSON(map[string]any{
+				"t":      "event",
+				"name":   "GMCP",
+				"world":  ge.WorldName,
+				"module": ge.Module,
+				"data":   json.RawMessage(ge.Data),
+			})
 		}
 	}
 }
@@ -270,17 +276,12 @@ func (br *Bridge) watchHooks(ctx context.Context) {
 				return
 			}
 			he := ev.(bus.HookEvent)
-			br.mu.Lock()
-			enc := br.enc
-			br.mu.Unlock()
-			if enc != nil {
-				enc.Encode(map[string]any{ //nolint:errcheck
-					"t":     "event",
-					"name":  "HOOK",
-					"hook":  he.Name,
-					"world": he.WorldName,
-				})
-			}
+			br.writeJSON(map[string]any{
+				"t":     "event",
+				"name":  "HOOK",
+				"hook":  he.Name,
+				"world": he.WorldName,
+			})
 		}
 	}
 }
@@ -335,12 +336,7 @@ func (br *Bridge) dispatch(method string, msg map[string]json.RawMessage) {
 		if br.cb.Getvar != nil {
 			name := str("name")
 			v, _ := br.cb.Getvar(name)
-			br.mu.Lock()
-			enc := br.enc
-			br.mu.Unlock()
-			if enc != nil {
-				enc.Encode(map[string]any{"t": "reply", "name": name, "value": v}) //nolint:errcheck
-			}
+			br.writeJSON(map[string]any{"t": "reply", "name": name, "value": v})
 		}
 	case "def":
 		name, pattern := str("name"), str("pattern")

@@ -23,6 +23,45 @@ export interface CharacterProfile {
   notes: string;
 }
 
+export interface TriggerProfile {
+  id: string;
+  pattern: string;
+  matchMode: 'regexp' | 'glob' | 'substr';
+  type: 'trigger' | 'gag' | 'hilite' | 'substitute';
+  body: string;
+  priority: number;
+  enabled: boolean;
+}
+
+export interface AliasProfile {
+  id: string;
+  pattern: string;
+  body: string;
+  enabled: boolean;
+}
+
+export interface TimerProfile {
+  id: string;
+  duration: string;
+  repeat: boolean;
+  body: string;
+  enabled: boolean;
+}
+
+export interface KeyBindingProfile {
+  id: string;
+  key: string;
+  body: string;
+  enabled: boolean;
+}
+
+export interface VariableProfile {
+  id: string;
+  name: string;
+  value: string;
+  enabled: boolean;
+}
+
 export interface WorldProfile {
   id: string;
   /** Display name shown in the World Manager list. */
@@ -35,6 +74,20 @@ export interface WorldProfile {
   gmcp: boolean;
   notes: string;
   characters: CharacterProfile[];
+  triggers: TriggerProfile[];
+  aliases: AliasProfile[];
+  timers: TimerProfile[];
+  keybindings: KeyBindingProfile[];
+  jsScriptEnabled: boolean;
+  jsScriptPath: string;
+  pyScriptEnabled: boolean;
+  pyScriptPath: string;
+  variables: VariableProfile[];
+  restrictShell: boolean;
+  restrictFile: boolean;
+  restrictWorld: boolean;
+  tfScriptEnabled: boolean;
+  tfScriptPath: string;
 }
 
 interface ProfileStore {
@@ -76,6 +129,20 @@ function makeWorld(partial: Partial<WorldProfile> = {}): WorldProfile {
     gmcp: partial.gmcp ?? true,
     notes: partial.notes ?? '',
     characters: partial.characters ?? [],
+    triggers: partial.triggers ?? [],
+    aliases: partial.aliases ?? [],
+    timers: partial.timers ?? [],
+    keybindings: partial.keybindings ?? [],
+    jsScriptEnabled: partial.jsScriptEnabled ?? false,
+    jsScriptPath: partial.jsScriptPath ?? '',
+    pyScriptEnabled: partial.pyScriptEnabled ?? false,
+    pyScriptPath: partial.pyScriptPath ?? '',
+    variables: partial.variables ?? [],
+    restrictShell: partial.restrictShell ?? false,
+    restrictFile: partial.restrictFile ?? false,
+    restrictWorld: partial.restrictWorld ?? false,
+    tfScriptEnabled: partial.tfScriptEnabled ?? false,
+    tfScriptPath: partial.tfScriptPath ?? '',
   };
 }
 
@@ -171,13 +238,30 @@ export const useProfileStore = create<ProfileStore>()(
     }),
     {
       name: 'gofugue-profiles',
-      version: 1,
+      version: 3,
       // pendingAutoLogin is session-only — never persist it across restarts.
       partialize: (s) => ({ worlds: s.worlds }),
-      migrate: (persisted: unknown) => {
-        // v0 → v1: strip stale pendingAutoLogin from storage.
+      migrate: (persisted: unknown, version: number) => {
         const p = persisted as Record<string, unknown> | null;
-        return { worlds: (p?.worlds ?? []) as WorldProfile[] };
+        const rawWorlds = (p?.worlds ?? []) as any[];
+        const worlds = rawWorlds.map((w) => ({
+          ...w,
+          triggers: w.triggers ?? [],
+          aliases: w.aliases ?? [],
+          timers: w.timers ?? [],
+          keybindings: w.keybindings ?? [],
+          jsScriptEnabled: w.jsScriptEnabled ?? false,
+          jsScriptPath: w.jsScriptPath ?? '',
+          pyScriptEnabled: w.pyScriptEnabled ?? false,
+          pyScriptPath: w.pyScriptPath ?? '',
+          variables: w.variables ?? [],
+          restrictShell: w.restrictShell ?? false,
+          restrictFile: w.restrictFile ?? false,
+          restrictWorld: w.restrictWorld ?? false,
+          tfScriptEnabled: w.tfScriptEnabled ?? false,
+          tfScriptPath: w.tfScriptPath ?? '',
+        }));
+        return { worlds };
       },
     },
   ),

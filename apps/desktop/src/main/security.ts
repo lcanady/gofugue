@@ -9,3 +9,17 @@
 export function isAllowedExternalUrl(url: string): boolean {
   return url.startsWith('https://') || url.startsWith('http://');
 }
+
+/**
+ * Returns true only for URLs safe to load inside an Electron <webview> tag.
+ *
+ * The <webview> tag runs a full renderer process. Allowing arbitrary schemes
+ * lets an attacker load javascript: URIs (XSS), file:// paths (local file
+ * read), or plaintext http:// (MITM). Only https:// and file:// are
+ * permitted; http:// is intentionally excluded because non-TLS content can
+ * be intercepted on the wire.
+ */
+export function isAllowedWebviewUrl(url: string): boolean {
+  if (!url) return false;
+  return url.startsWith('https://') || url.startsWith('file://');
+}

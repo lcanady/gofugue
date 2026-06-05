@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -161,7 +162,7 @@ func (b *Buffer) Search(pattern string) []Line {
 		if reErr == nil {
 			match = re.MatchString(l.Text)
 		} else {
-			match = containsStr(l.Text, pattern)
+			match = strings.Contains(l.Text, pattern)
 		}
 		if match {
 			out = append(out, l)
@@ -203,17 +204,4 @@ func (b *Buffer) StopLog() {
 		b.logFile = nil
 	}
 	b.logBuf = nil
-}
-
-func containsStr(s, sub string) bool {
-	return len(sub) == 0 || (len(s) >= len(sub) && indexStr(s, sub) >= 0)
-}
-
-func indexStr(s, sub string) int {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
-	}
-	return -1
 }

@@ -2,8 +2,10 @@ package macro_test
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/kumakun/gofugue/internal/macro"
 )
@@ -368,4 +370,39 @@ func TestEngine_Concurrent_FireHook_NoRace(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+// TestNestedQuantifierReDoSSafety verifies that patterns which would cause
+// catastrophic backtracking in a backtracking regexp engine (e.g. Python's re)
+// complete in bounded time under Go's RE2-based regexp package.
+func TestNestedQuantifierReDoSSafety(t *testing.T) {
+	e := macro.New()
+	// (a+)+$ is a classic ReDoS pattern — exponential in a backtracking engine.
+	err := e.Define(&macro.Macro{
+		Name:    "redos-test",
+		Type:    macro.TypeTrigger,
+		Pattern: `(a+)+$`,
+		Body:    "noop",
+	})
+	if err != nil {
+		// RE2 may reject the pattern — that is also an acceptable outcome.
+		t.Logf("pattern rejected at compile time (acceptable): %v", err)
+		return
+	}
+	// Craft an adversarial input: 30 'a's followed by a non-matching character.
+	// Under a backtracking engine this would take exponential time; RE2 finishes instantly.
+	input := strings.Repeat("a", 30) + "X"
+
+	done := make(chan struct{})
+	go func() {
+		e.FireTriggers("world", input)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// completed quickly — RE2 is safe
+	case <-time.After(time.Second):
+		t.Fatal("FireTriggers did not complete within 1s — possible ReDoS vulnerability")
+	}
 }

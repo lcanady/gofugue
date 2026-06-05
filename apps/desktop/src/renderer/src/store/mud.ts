@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { WorldLineEvent, StatusEvent } from '@gofugue/ipc';
 
 /** Maximum lines retained per world in the scrollback buffer. */
-const MAX_SCROLLBACK = 50_000;
+const MAX_SCROLLBACK = 10_000;
 
 export interface WorldState {
   name: string;
@@ -21,6 +21,7 @@ interface MudStore {
   worldOrder: string[];
   worlds: Record<string, WorldState>;
   activeWorld: string | null;
+  connectingWorlds: Record<string, boolean>;
 
   // ── Mutations ─────────────────────────────────────────────────────────
 
@@ -31,6 +32,7 @@ interface MudStore {
   setScrollLocked: (world: string, locked: boolean) => void;
   clearWorld: (name: string) => void;
   removeWorld: (name: string) => void;
+  setConnectingWorld: (name: string, connecting: boolean) => void;
 }
 
 function makeWorld(name: string): WorldState {
@@ -48,6 +50,13 @@ export const useMudStore = create<MudStore>((set) => ({
   worldOrder: [],
   worlds: {},
   activeWorld: null,
+  connectingWorlds: {},
+
+  setConnectingWorld(name, connecting) {
+    set((s) => ({
+      connectingWorlds: { ...s.connectingWorlds, [name]: connecting },
+    }));
+  },
 
   ensureWorld(name) {
     // "local" is gofugue's internal channel for system messages — never a tab.
@@ -71,10 +80,13 @@ export const useMudStore = create<MudStore>((set) => ({
 
       const addLine = (existing: WorldState | undefined, name: string): WorldState => {
         const w = existing ?? makeWorld(name);
-        const lines =
-          w.lines.length >= MAX_SCROLLBACK
-            ? [...w.lines.slice(-MAX_SCROLLBACK + 1), ev]
-            : [...w.lines, ev];
+        let lines: WorldLineEvent[];
+        if (w.lines.length >= MAX_SCROLLBACK) {
+          lines = w.lines.slice(-MAX_SCROLLBACK + 1);
+          lines.push(ev);
+        } else {
+          lines = [...w.lines, ev];
+        }
         return { ...w, lines };
       };
 

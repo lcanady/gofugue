@@ -19,25 +19,21 @@ test.describe('Design tokens — colours', () => {
     await page.goto('/');
   });
 
-  test('root background uses the deep navy-black design token', async ({ page }) => {
-    // --background: 224 71% 4% → hsl(224, 71%, 4%) ≈ #080d1a
+  test('root background uses the dark background token', async ({ page }) => {
+    // --background: 240 6% 6% → hsl(240, 6%, 6%) ≈ #0e0e10
     const bg = await page.evaluate(() =>
       getComputedStyle(document.body).backgroundColor,
     );
-    // Expect a very dark blue, not pure black and not light
-    const [r, g, b] = bg.match(/\d+/g)!.map(Number);
-    expect(r).toBeLessThan(20);
-    expect(g).toBeLessThan(20);
-    expect(b).toBeLessThan(35);
+    // Expect rgb(14, 14, 16)
+    expect(bg).toBe('rgb(14, 14, 16)');
   });
 
-  test('primary accent is a cyan colour (--primary)', async ({ page }) => {
-    // --primary: 187 100% 42% → cyan-ish
+  test('primary accent is an indigo colour (--primary)', async ({ page }) => {
+    // --primary: 239 84% 67% → indigo
     const primary = await page.evaluate(() =>
       getComputedStyle(document.documentElement).getPropertyValue('--primary').trim(),
     );
-    // Should be "187 100% 42%" or close
-    expect(primary).toMatch(/^187/);
+    expect(primary).toMatch(/^239/);
   });
 
   test('terminal cursor CSS variable is set', async ({ page }) => {
@@ -47,8 +43,7 @@ test.describe('Design tokens — colours', () => {
         .trim(),
     );
     expect(cursor).not.toBe('');
-    // Same value as --primary (187 100% 42%)
-    expect(cursor).toMatch(/187/);
+    expect(cursor).toMatch(/239/);
   });
 
   test('all 16 ANSI palette variables are defined', async ({ page }) => {
@@ -90,12 +85,15 @@ test.describe('Design tokens — typography', () => {
 });
 
 test.describe('Design tokens — layout geometry', () => {
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page, mockIPC }) => {
     await page.goto('/');
+    await mockIPC.waitConnected();
+    mockIPC.pushEvent('hook', hookConnect('avalon'));
+    await page.locator('.lm_tab', { hasText: 'avalon' }).waitFor({ timeout: 2_000 });
   });
 
   test('tab bar is at the top of the window', async ({ page }) => {
-    const tabBar = page.getByRole('tablist');
+    const tabBar = page.locator('.lm_header');
     const box = await tabBar.boundingBox();
     // Top edge should be at y=0 (or very close, accounting for possible macOS drag region)
     expect(box!.y).toBeLessThan(40);
@@ -119,7 +117,7 @@ test.describe('Design tokens — layout geometry', () => {
   });
 
   test('world tab bar height is ~36px', async ({ page }) => {
-    const box = await page.getByRole('tablist').boundingBox();
+    const box = await page.locator('.lm_header').boundingBox();
     expect(box!.height).toBeGreaterThanOrEqual(32);
     expect(box!.height).toBeLessThanOrEqual(42);
   });
@@ -137,9 +135,12 @@ test.describe('Design tokens — layout geometry', () => {
 
 test.describe('Visual snapshots', () => {
   test('disconnected empty state', async ({ page }) => {
+    await page.routeWebSocket('ws://127.0.0.1:7879/', (ws) => {
+      ws.close();
+    });
     await page.goto('/');
-    // Wait for the connecting animation text to appear so the snapshot is stable
-    await page.getByText(/connecting to gofugue/i).waitFor({ timeout: 3_000 });
+    // Wait for the status bar connecting indicator to be visible
+    await page.getByRole('status').getByText(/connecting/i).waitFor({ timeout: 3_000 });
     await expect(page).toHaveScreenshot('disconnected-empty-state.png', {
       maxDiffPixelRatio: 0.02,
     });
@@ -149,7 +150,7 @@ test.describe('Visual snapshots', () => {
     await page.goto('/');
     await mockIPC.waitConnected();
     // IPC is up but no worlds connected yet
-    await page.getByText(/no world connected/i).waitFor({ timeout: 3_000 });
+    await page.getByText(/no worlds connected/i).waitFor({ timeout: 3_000 });
     await expect(page).toHaveScreenshot('connected-no-world.png', {
       maxDiffPixelRatio: 0.02,
     });
@@ -161,7 +162,7 @@ test.describe('Visual snapshots', () => {
 
     mockIPC.pushEvent('hook', hookConnect('avalon'));
     mockIPC.pushEvent('status', statusEvent('avalon', true, 12));
-    await page.getByRole('tab', { name: /avalon/ }).waitFor({ timeout: 2_000 });
+    await page.locator('.lm_tab', { hasText: 'avalon' }).waitFor({ timeout: 2_000 });
 
     // Push some representative output
     const lines = [
@@ -185,7 +186,7 @@ test.describe('Visual snapshots', () => {
   test('world manager dialog', async ({ page, mockIPC }) => {
     await page.goto('/');
     await mockIPC.waitConnected();
-    await page.keyboard.press('Control+n');
+    await page.keyboard.press('Control+Shift+n');
     await page.getByRole('dialog', { name: 'Worlds' }).waitFor({ timeout: 2_000 });
     await expect(page).toHaveScreenshot('world-manager-dialog.png', {
       maxDiffPixelRatio: 0.02,

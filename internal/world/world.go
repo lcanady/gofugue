@@ -224,6 +224,9 @@ func (m *Manager) readLoop(ctx context.Context, w *World, conn io.Reader) {
 	// decoder converts non-UTF-8 bytes to UTF-8 based on world charset config.
 	decoder := charsetDecoder(w.Cfg.Charset)
 
+	// sess is non-nil when conn is a Telnet session; used to check EchoEnabled.
+	sess, _ := conn.(*proto.Session)
+
 	publishLine := func(raw string) {
 		raw = strings.TrimRight(raw, "\r")
 		if decoder != nil {
@@ -240,6 +243,14 @@ func (m *Manager) readLoop(ctx context.Context, w *World, conn io.Reader) {
 		}
 		if len(spans) > 1 || (len(spans) == 1 && spans[0].Attrs != (bus.LineAttrs{FG: -1, BG: -1})) {
 			ev.Spans = spans
+		}
+		// Mark lines as sensitive while the server has ECHO active (IAC WILL ECHO).
+		// This is the standard Telnet signal for password prompts: the server
+		// takes over echo (suppressing client local echo) so credentials are not
+		// displayed. Any line received during this window is withheld from IPC
+		// subscribers to prevent credential leakage.
+		if sess != nil && sess.EchoEnabled {
+			ev.Sensitive = true
 		}
 		m.bus.Publish(ev)
 

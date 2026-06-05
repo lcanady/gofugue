@@ -14,6 +14,14 @@ const gofugueAPI = {
     ipcRenderer.invoke('profile:decryptPassword', b64) as Promise<string>,
   /** Quit the Electron app (stop gofugue + close all windows). */
   quit: () => ipcRenderer.invoke('app:quit') as Promise<void>,
+  /** Open a new window. */
+  newWindow: () => ipcRenderer.invoke('window:new') as Promise<{ ok: boolean }>,
+  /**
+   * Read the shared IPC auth token that gofugue writes to
+   * ~/.config/gofugue/ipc.token on startup. Returns empty string if the file
+   * is not yet available (e.g. gofugue not yet started).
+   */
+  getIPCToken: () => ipcRenderer.invoke('gofugue:getToken') as Promise<string>,
 };
 
 if (process.contextIsolated) {

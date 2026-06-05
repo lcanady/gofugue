@@ -18,6 +18,8 @@ func init() {
 }
 
 // CompileRegexp is a cached wrapper around regexp.Compile.
+// Go's regexp package uses RE2 semantics, guaranteeing linear-time matching
+// regardless of pattern complexity — ReDoS is not possible here.
 func CompileRegexp(pattern string) (*regexp.Regexp, error) {
 	if cachedRe, ok := reCache.Get(pattern); ok {
 		return cachedRe, nil

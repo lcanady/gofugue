@@ -276,8 +276,10 @@ func TestIPC_CustomHandler_ReturnsError_ClientGetsRPCError(t *testing.T) {
 	if resp.Error == nil {
 		t.Fatal("expected error response")
 	}
-	if !strings.Contains(resp.Error.Message, "something went wrong") {
-		t.Errorf("error message = %q, want 'something went wrong'", resp.Error.Message)
+	// Handler errors are sanitised: clients receive "internal error" rather than
+	// the raw Go error string, which may contain internal file paths or details.
+	if resp.Error.Message != "internal error" {
+		t.Errorf("error message = %q, want 'internal error'", resp.Error.Message)
 	}
 }
 
@@ -512,5 +514,150 @@ func TestIPC_Config_InvalidWS(t *testing.T) {
 	err := srv.Run(ctx)
 	if err == nil || err == context.DeadlineExceeded {
 		t.Fatalf("expected listener error, got %v", err)
+	}
+}
+
+// --- H-3 remediation tests ---
+
+func TestIPC_HistoryGet_ClampsLargeN(t *testing.T) {
+	b := bus.New()
+	addr := startServer(t, b)
+	// Wire a history func that returns as many lines as requested (to expose unclamped n)
+	// We can't do that via startServer directly; build a custom server.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+	addr2 := ln.Addr().String()
+	ln.Close()
+
+	cfg2 := ipc.Config{TCPAddr: addr2}
+	srv2 := ipc.New(cfg2, b)
+	srv2.SetHistoryFunc(func(n int) []string {
+		// Return exactly n lines so the test can detect the clamp
+		lines := make([]string, n)
+		for i := range lines {
+			lines[i] = "line"
+		}
+		return lines
+	})
+
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	t.Cleanup(cancel2)
+	go srv2.Run(ctx2) //nolint:errcheck
+	time.Sleep(30 * time.Millisecond)
+
+	conn := dial(t, addr2)
+	sendJSON(t, conn, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "history.get",
+		"params":  map[string]any{"n": 2147483647},
+	})
+
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	scanner := bufio.NewScanner(conn)
+	scanner.Buffer(make([]byte, 1<<20), 4<<20)
+	if !scanner.Scan() {
+		t.Fatal("no response")
+	}
+	var resp struct {
+		Result []string `json:"result"`
+	}
+	if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	const maxN = 10000
+	if len(resp.Result) > maxN {
+		t.Errorf("history.get returned %d lines, want at most %d (n should be clamped)", len(resp.Result), maxN)
+	}
+	_ = addr // suppress unused warning
+}
+
+// TestIPC_LogInjection_MethodNameSanitized verifies that a method name
+// containing newline characters does not appear verbatim in the error
+// response message (L-2 remediation).
+func TestIPC_LogInjection_MethodNameSanitized(t *testing.T) {
+	b := bus.New()
+	addr := startServer(t, b)
+	conn := dial(t, addr)
+
+	// Send a method whose name contains a newline — a classic log-injection payload.
+	maliciousMethod := "evil\nfake.log.line\nmethod"
+	data, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  maliciousMethod,
+	})
+	data = append(data, '\n')
+	conn.Write(data) //nolint:errcheck
+
+	var resp ipc.Response
+	recvJSON(t, conn, &resp)
+
+	if resp.Error == nil {
+		t.Fatal("expected error response for unknown method")
+	}
+	if strings.Contains(resp.Error.Message, "\n") {
+		t.Errorf("error message contains raw newline — log injection not sanitized: %q", resp.Error.Message)
+	}
+	// The response message must still mention the method, with ? in place of control chars.
+	if !strings.Contains(resp.Error.Message, "method not found:") {
+		t.Errorf("error message missing 'method not found:' prefix: %q", resp.Error.Message)
+	}
+	if strings.Contains(resp.Error.Message, "evil\n") {
+		t.Errorf("raw method name leaked into error: %q", resp.Error.Message)
+	}
+}
+
+func TestIPC_MaxConnections(t *testing.T) {
+	b := bus.New()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+
+	const maxConns = 5
+	cfg := ipc.Config{TCPAddr: addr, MaxConnections: maxConns}
+	srv := ipc.New(cfg, b)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go srv.Run(ctx) //nolint:errcheck
+	time.Sleep(30 * time.Millisecond)
+
+	// Open maxConns connections — all should succeed.
+	conns := make([]net.Conn, maxConns)
+	for i := range conns {
+		c, err := net.DialTimeout("tcp", addr, time.Second)
+		if err != nil {
+			t.Fatalf("conn %d dial: %v", i, err)
+		}
+		t.Cleanup(func() { c.Close() })
+		conns[i] = c
+	}
+
+	// The (maxConns+1)th connection should be rejected with an error or closed.
+	extra, err := net.DialTimeout("tcp", addr, time.Second)
+	if err != nil {
+		// Dial itself failed — that's a valid rejection too.
+		return
+	}
+	t.Cleanup(func() { extra.Close() })
+
+	// Server should send a JSON-RPC error then close the connection.
+	extra.SetReadDeadline(time.Now().Add(time.Second))
+	scanner := bufio.NewScanner(extra)
+	if !scanner.Scan() {
+		// EOF without a message is also acceptable rejection.
+		return
+	}
+	var resp ipc.Response
+	if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal rejection: %v", err)
+	}
+	if resp.Error == nil {
+		t.Error("expected error response when max connections exceeded")
 	}
 }

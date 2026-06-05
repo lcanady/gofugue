@@ -123,6 +123,8 @@ func (e *Engine) Define(m *Macro) error {
 }
 
 // compilePattern compiles a pattern according to the given match mode.
+// Go's regexp package uses RE2 semantics, which guarantees linear-time matching
+// and is therefore safe against ReDoS (catastrophic backtracking) by design.
 func compilePattern(pattern string, mode MatchMode) (*regexp.Regexp, error) {
 	switch mode {
 	case MatchGlob:
@@ -214,6 +216,11 @@ func (e *Engine) FireTriggers(world, line string) TriggerResult {
 			if err == nil && int(v.Int64()) >= m.Prob {
 				continue
 			}
+		}
+
+		// Substring match optimization: check strings.Contains before running regex.
+		if (m.MatchMode == MatchSubstr || m.MatchMode == MatchSimple) && !strings.Contains(line, m.Pattern) {
+			continue
 		}
 
 		sub := m.re.FindStringSubmatch(line)

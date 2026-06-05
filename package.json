@@ -6,6 +6,7 @@
     "build": "mkdir -p bin && go build -o bin/gf ./cmd/gf && turbo run build",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
+    "test:e2e": "turbo run test:e2e",
     "desktop": "mkdir -p bin && go build -o bin/gf ./cmd/gf && turbo run dev --filter=@gofugue/desktop"
   },
   "devDependencies": {
@@ -19,6 +20,26 @@
     "onlyBuiltDependencies": [
       "electron",
       "esbuild"
-    ]
+    ],
+    "overrides": {
+      "tar@<7.5.7": ">=7.5.7",
+      "tar@<=7.5.2": ">=7.5.3",
+      "tar@<7.5.8": ">=7.5.8",
+      "tar@<=7.5.9": ">=7.5.10",
+      "tar@<=7.5.10": ">=7.5.11",
+      "tar@<=7.5.3": ">=7.5.4",
+      "electron@<38.8.6": ">=38.8.6",
+      "electron@<39.8.1": ">=39.8.1",
+      "electron@>=33.0.0-alpha.1 <39.8.5": ">=39.8.5",
+      "electron@<39.8.5": ">=39.8.5",
+      "postcss@<8.5.10": ">=8.5.10",
+      "@xmldom/xmldom@<0.8.13": ">=0.8.13",
+      "ip-address@<=10.1.0": ">=10.1.1",
+      "brace-expansion@>=5.0.0 <5.0.6": ">=5.0.6",
+      "turbo@<=2.9.13": ">=2.9.14",
+      "turbo@>=1.1.0 <2.9.14": ">=2.9.14",
+      "@tootallnate/once@<2.0.1": ">=2.0.1",
+      "tmp@<0.2.6": ">=0.2.6"
+    }
   }
 }

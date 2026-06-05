@@ -44,6 +44,7 @@ type WorldLineEvent struct {
 	Attrs     LineAttrs
 	Spans     []Span   // non-empty when line has mid-line colour changes
 	Gagged    bool     // trigger marked this line as suppressed
+	Sensitive bool     // line was received while server echo was active (e.g. password prompt); suppress from IPC
 }
 
 func (e WorldLineEvent) Type() EventType { return EvWorldLine }

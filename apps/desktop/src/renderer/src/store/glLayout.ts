@@ -15,7 +15,9 @@ import {
 } from 'golden-layout';
 import type { PanelState } from '@renderer/features/layout/GoldenLayoutRoot';
 
-const STORAGE_KEY = 'gofugue-gl-layout-v2';
+const urlParams = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
+const windowId = urlParams.get('windowId') || 'default';
+const STORAGE_KEY = `gofugue-gl-layout-v2-${windowId}`;
 
 /** Recursively walk the GL content tree to find a terminal panel for a world. */
 function findTerminal(item: ContentItem | undefined, worldName: string): ComponentItem | undefined {

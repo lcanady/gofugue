@@ -142,3 +142,20 @@ describe('appendLine — gagged lines are dropped', () => {
     expect(useMudStore.getState().worlds['mud'].lines).toHaveLength(0);
   });
 });
+
+// ── Scrollback limits ─────────────────────────────────────────────────────────
+
+describe('appendLine — scrollback limit of 10,000 is enforced', () => {
+  it('caps the scrollback lines at MAX_SCROLLBACK', () => {
+    useMudStore.getState().ensureWorld('mud');
+    const state = useMudStore.getState();
+    // Append 10,005 lines
+    for (let i = 0; i < 10005; i++) {
+      state.appendLine(makeLineEvent('mud', `line ${i}`));
+    }
+    const lines = useMudStore.getState().worlds['mud'].lines;
+    expect(lines).toHaveLength(10000);
+    expect(lines[0].Text).toBe('line 5');
+    expect(lines[9999].Text).toBe('line 10004');
+  });
+});

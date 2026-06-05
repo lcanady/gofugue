@@ -100,6 +100,28 @@ export function GoldenLayoutRoot({ client, onNewConnection, className }: Props) 
     glRef.current = gl;
     setGl(gl);
 
+    gl.on('stackCreated' as never, (stack: any) => {
+      const header = stack.header;
+      if (!header) return;
+
+      const tabsContainer = header.tabsContainer;
+      if (!tabsContainer) return;
+
+      let plusBtn = tabsContainer.querySelector('.lm_plus_button');
+      if (!plusBtn) {
+        plusBtn = document.createElement('button');
+        plusBtn.className = 'lm_plus_button';
+        plusBtn.innerText = '+';
+        plusBtn.title = 'New connection (Ctrl+N)';
+        plusBtn.style.cursor = 'pointer';
+        plusBtn.addEventListener('click', (e: MouseEvent) => {
+          e.stopPropagation();
+          onNewConnection();
+        });
+        tabsContainer.appendChild(plusBtn);
+      }
+    });
+
     // ── Component factories ──────────────────────────────────────────────────
 
     const register = (

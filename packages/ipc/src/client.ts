@@ -30,6 +30,18 @@ export interface GofugueClientOptions {
   url?: string;
   /** Maximum reconnect backoff in ms. Default: 30_000 */
   maxReconnectDelay?: number;
+  /**
+   * Shared-secret token for IPC authentication (C-2 fix).
+   * When set, the client sends an `auth` JSON-RPC call as its very first
+   * message after the WebSocket opens — before any subscribe or other call.
+   * The server rejects (and closes) connections that don't present the correct
+   * token.  Obtain the token by reading ~/.config/gofugue/ipc.token in the
+   * Electron main process and passing it here via contextBridge.
+   *
+   * Leave undefined (or empty string) when connecting to a server that has
+   * not configured a token (backwards-compatible).
+   */
+  token?: string;
 }
 
 /**
@@ -53,6 +65,7 @@ export class GofugueClient {
 
   private readonly url: string;
   private readonly maxDelay: number;
+  private readonly token: string;
   private reconnectDelay = 1_000;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private _state: ConnectionState = 'disconnected';
@@ -63,6 +76,7 @@ export class GofugueClient {
   constructor(options: GofugueClientOptions = {}) {
     this.url = options.url ?? 'ws://127.0.0.1:7879/';
     this.maxDelay = options.maxReconnectDelay ?? 30_000;
+    this.token = options.token ?? '';
   }
 
   get state(): ConnectionState {
@@ -129,8 +143,10 @@ export class GofugueClient {
     // twice for the same event causes the server to emit it twice.
     const fresh = events.filter((e) => !this.subscribedEvents.has(e));
     if (fresh.length === 0) return Promise.resolve({ ok: true });
-    fresh.forEach((e) => this.subscribedEvents.add(e));
-    return this.call('subscribe', { events: fresh });
+    return this.call<{ ok: boolean }>('subscribe', { events: fresh }).then((res) => {
+      fresh.forEach((e) => this.subscribedEvents.add(e));
+      return res;
+    });
   }
 
   subscribeAll(): Promise<{ ok: boolean }> {
@@ -174,6 +190,22 @@ export class GofugueClient {
 
     ws.onopen = () => {
       this.reconnectDelay = 1_000;
+      // If a token is configured, send the auth handshake as the very first
+      // message. The server requires auth before it will accept any other RPC.
+      // We send it directly (not via call()) so it goes out before connected
+      // state is set and before any queued subscribe calls.
+      if (this.token) {
+        const authMsg = JSON.stringify({
+          jsonrpc: '2.0',
+          id: this.nextId++,
+          method: 'auth',
+          params: { token: this.token },
+        });
+        ws.send(authMsg);
+        // Auth response will arrive as a normal RPC response with an id;
+        // it is resolved via the pending map and we ignore the result here —
+        // if auth fails the server closes the connection and onclose fires.
+      }
       this._setState('connected');
     };
 

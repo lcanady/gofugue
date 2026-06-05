@@ -1,8 +1,12 @@
 import { app, BrowserWindow, ipcMain, Menu, shell, safeStorage, session } from 'electron';
 import { join } from 'path';
+import { readFileSync } from 'fs';
+import { homedir } from 'os';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import { spawn, execSync, type ChildProcess } from 'child_process';
-import { isAllowedExternalUrl } from './security.js';
+import { isAllowedExternalUrl, isAllowedWebviewUrl } from './security.js';
+import { CSP_PROD, CSP_DEV } from './csp.js';
+import { parsePidsUnix, parsePidsWindows } from './killStale.js';
 
 // ── gofugue process management ─────────────────────────────────────────────
 
@@ -35,28 +39,16 @@ function killStaleGofugue(): void {
   // found" error.
   if (process.platform === 'win32') return;
   try {
-    const pids: string[] = [];
+    let pids: number[];
 
     if (process.platform === 'win32') {
       // Windows: use netstat to find PIDs on ports 7878/7879.
       const out = execSync('netstat -ano', { encoding: 'utf8' });
-      const lines = out.split('\n');
-      for (const line of lines) {
-        if (line.includes(':7878') || line.includes(':7879')) {
-          const parts = line.trim().split(/\s+/);
-          const pid = parts[parts.length - 1];
-          if (pid && pid !== '0' && !pids.includes(pid)) {
-            pids.push(pid);
-          }
-        }
-      }
+      pids = parsePidsWindows(out);
     } else {
       // Unix: use lsof.
-      execSync('lsof -ti :7878,:7879 2>/dev/null || true', { encoding: 'utf8' })
-        .split('\n')
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .forEach((pid) => pids.push(pid));
+      const out = execSync('lsof -ti :7878,:7879 2>/dev/null || true', { encoding: 'utf8' });
+      pids = parsePidsUnix(out);
     }
 
     for (const pid of pids) {
@@ -64,7 +56,7 @@ function killStaleGofugue(): void {
         if (process.platform === 'win32') {
           execSync(`taskkill /F /PID ${pid}`);
         } else {
-          process.kill(Number(pid), 'SIGTERM');
+          process.kill(pid, 'SIGTERM');
         }
       } catch {
         /* already gone or access denied */
@@ -111,7 +103,15 @@ function startGofugue(): void {
 
 function stopGofugue(): void {
   if (!gofugueProc) return;
-  gofugueProc.kill();
+  try {
+    if (process.platform === 'win32') {
+      execSync(`taskkill /F /T /PID ${gofugueProc.pid}`);
+    } else {
+      gofugueProc.kill('SIGKILL');
+    }
+  } catch {
+    // ignore
+  }
   gofugueProc = null;
 }
 
@@ -123,20 +123,10 @@ function stopGofugue(): void {
 // never interferes with electron-vite's dev server.
 
 function installCSP(): void {
-  // Dev: Vite injects inline scripts for HMR + React Fast Refresh, and opens
-  // its own WebSocket on localhost.  Any CSP breaks that, so skip it entirely.
-  // Prod: enforce a strict policy via response headers (the right Electron way —
-  // <meta> tags interfere with the renderer bootstrap).
-  if (is.dev) return;
-
-  const policy = [
-    "default-src 'self'",
-    "script-src 'self'",
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    "font-src 'self' https://fonts.gstatic.com",
-    "connect-src ws://127.0.0.1:7879 wss://127.0.0.1:7879",
-    "img-src 'self' data:",
-  ].join('; ');
+  // Always install a CSP. Use the stricter prod policy in production and a
+  // slightly more permissive dev policy that still protects the renderer while
+  // allowing Vite HMR / React Fast Refresh to function.
+  const policy = is.dev ? CSP_DEV : CSP_PROD;
 
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
@@ -170,6 +160,22 @@ function createWindow(): BrowserWindow {
 
   win.on('ready-to-show', () => win.show());
 
+  // ── H-2: webview origin guard ─────────────────────────────────────────────
+  // Reject any <webview> whose src is not https:// or file://, and enforce
+  // that node integration is disabled and context isolation is on — regardless
+  // of what the renderer requests.
+  win.webContents.on('will-attach-webview', (event, webPreferences, params) => {
+    // Validate src scheme.
+    const src: string = (params as { src?: string }).src ?? '';
+    if (!isAllowedWebviewUrl(src)) {
+      event.preventDefault();
+      return;
+    }
+    // Harden webPreferences regardless of renderer-supplied values.
+    webPreferences.nodeIntegration = false;
+    webPreferences.contextIsolation = true;
+  });
+
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (isAllowedExternalUrl(url)) {
       shell.openExternal(url);
@@ -177,10 +183,13 @@ function createWindow(): BrowserWindow {
     return { action: 'deny' };
   });
 
+  const windowId = win.id;
   if (is.dev && process.env.ELECTRON_RENDERER_URL) {
-    win.loadURL(process.env.ELECTRON_RENDERER_URL);
+    win.loadURL(`${process.env.ELECTRON_RENDERER_URL}?windowId=${windowId}`);
   } else {
-    win.loadFile(join(__dirname, '../renderer/index.html'));
+    win.loadFile(join(__dirname, '../renderer/index.html'), {
+      query: { windowId: String(windowId) },
+    });
   }
 
   return win;
@@ -204,6 +213,26 @@ ipcMain.handle('gofugue:status', () => ({
 
 ipcMain.handle('app:quit', () => {
   app.quit();
+});
+
+ipcMain.handle('window:new', () => {
+  createWindow();
+  return { ok: true };
+});
+
+// ── IPC token — read the shared secret written by gofugue on startup ─────────
+//
+// gofugue writes ~/.config/gofugue/ipc.token (mode 0600) when it starts.
+// The renderer cannot read the filesystem directly, so the main process reads
+// it here and returns it via contextBridge.
+
+ipcMain.handle('gofugue:getToken', (): string => {
+  try {
+    const tokenPath = join(homedir(), '.config', 'gofugue', 'ipc.token');
+    return readFileSync(tokenPath, 'utf8').trim();
+  } catch {
+    return '';
+  }
 });
 
 // ── safeStorage IPC — password encryption ──────────────────────────────────
@@ -261,6 +290,20 @@ app.whenReady().then(() => {
           ]
         : []),
       {
+        label: 'File',
+        submenu: [
+          {
+            label: 'New Window',
+            accelerator: 'CmdOrCtrl+N',
+            click: (): void => {
+              createWindow();
+            },
+          },
+          { type: 'separator' },
+          { role: 'close' },
+        ],
+      },
+      {
         label: 'Edit',
         submenu: [
           { role: 'undo' },
@@ -292,7 +335,19 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   stopGofugue();
-  if (process.platform !== 'darwin') app.quit();
+  app.quit();
+  try {
+    process.kill(0, 'SIGINT');
+  } catch {
+    process.exit(0);
+  }
 });
 
-app.on('before-quit', stopGofugue);
+app.on('before-quit', () => {
+  stopGofugue();
+  try {
+    process.kill(0, 'SIGINT');
+  } catch {
+    process.exit(0);
+  }
+});

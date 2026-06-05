@@ -18,7 +18,7 @@ test.describe('Terminal pane — line rendering', () => {
     await mockIPC.waitConnected();
     mockIPC.pushEvent('hook', hookConnect('testworld'));
     // Give React time to create the world tab and switch the active world
-    await page.getByRole('tab', { name: /testworld/ }).waitFor({ timeout: 2_000 });
+    await page.locator('.lm_tab', { hasText: 'testworld' }).waitFor({ timeout: 2_000 });
   });
 
   test('terminal pane has aria-live=polite for screen reader support', async ({ page }) => {
@@ -85,6 +85,9 @@ test.describe('Terminal pane — line rendering', () => {
     mockIPC,
   }) => {
     mockIPC.pushEvent('hook', hookConnect('otherworld'));
+    await page.locator('.lm_tab', { hasText: 'otherworld' }).waitFor({ timeout: 2_000 });
+    await page.locator('.lm_tab', { hasText: 'testworld' }).click();
+
     mockIPC.pushEvent(
       'world.line.rendered',
       line('secret from otherworld', 'otherworld'),
@@ -102,7 +105,7 @@ test.describe('Terminal pane — local echo (warnings)', () => {
     await page.goto('/');
     await mockIPC.waitConnected();
     mockIPC.pushEvent('hook', hookConnect('local'));
-    await page.getByRole('tab', { name: /local/ }).waitFor({ timeout: 2_000 });
+    await page.locator('.lm_tab', { hasText: 'local' }).waitFor({ timeout: 2_000 });
 
     mockIPC.pushEvent('world.line.rendered', line('[WARNING] TLS disabled', 'local'));
     await expect(page.getByText('[WARNING] TLS disabled')).toBeVisible({ timeout: 2_000 });

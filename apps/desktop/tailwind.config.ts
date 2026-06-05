@@ -7,7 +7,8 @@ const config: Config = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['Inter', ...fontFamily.sans],
+        sans: ['DM Sans', ...fontFamily.sans],
+        display: ['General Sans', ...fontFamily.sans],
         mono: ['JetBrains Mono', ...fontFamily.mono],
       },
       colors: {
@@ -24,6 +25,7 @@ const config: Config = {
         },
         primary: {
           DEFAULT: 'hsl(var(--primary))',
+          hover: 'hsl(var(--primary-hover))',
           foreground: 'hsl(var(--primary-foreground))',
         },
         secondary: {

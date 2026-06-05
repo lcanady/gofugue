@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isAllowedExternalUrl } from '../security.js';
+import { isAllowedExternalUrl, isAllowedWebviewUrl } from '../security.js';
 
 // ---------------------------------------------------------------------------
 // Security: shell.openExternal protocol allowlist (L1)
@@ -36,5 +36,42 @@ describe('isAllowedExternalUrl', () => {
 
   it('blocks empty strings', () => {
     expect(isAllowedExternalUrl('')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Security: webview src URL allowlist (H-2)
+//
+// isAllowedWebviewUrl guards the <webview> tag against loading dangerous
+// schemes. Only https:// (TLS) and file:// (local) are permitted.
+// ---------------------------------------------------------------------------
+
+describe('isAllowedWebviewUrl', () => {
+  it('allows https URLs', () => {
+    expect(isAllowedWebviewUrl('https://example.com')).toBe(true);
+  });
+
+  it('allows https URLs with path and query', () => {
+    expect(isAllowedWebviewUrl('https://example.com/path?q=1#frag')).toBe(true);
+  });
+
+  it('allows file:// URLs', () => {
+    expect(isAllowedWebviewUrl('file:///path/to/file.html')).toBe(true);
+  });
+
+  it('rejects http:// (non-TLS)', () => {
+    expect(isAllowedWebviewUrl('http://example.com')).toBe(false);
+  });
+
+  it('rejects javascript: URIs', () => {
+    expect(isAllowedWebviewUrl('javascript:alert(1)')).toBe(false);
+  });
+
+  it('rejects data: URIs', () => {
+    expect(isAllowedWebviewUrl('data:text/html,<script>alert(1)</script>')).toBe(false);
+  });
+
+  it('rejects empty string', () => {
+    expect(isAllowedWebviewUrl('')).toBe(false);
   });
 });

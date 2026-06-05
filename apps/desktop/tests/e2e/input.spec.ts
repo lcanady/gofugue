@@ -12,7 +12,7 @@ test.describe('Input bar — basic interaction', () => {
     await page.goto('/');
     await mockIPC.waitConnected();
     mockIPC.pushEvent('hook', hookConnect('testworld'));
-    await page.getByRole('tab', { name: /testworld/ }).waitFor({ timeout: 2_000 });
+    await page.locator('.lm_tab', { hasText: 'testworld' }).waitFor({ timeout: 2_000 });
   });
 
   test('input field is autofocused', async ({ page }) => {
@@ -54,7 +54,7 @@ test.describe('Input bar — IPC routing', () => {
     await page.goto('/');
     await mockIPC.waitConnected();
     mockIPC.pushEvent('hook', hookConnect('testworld'));
-    await page.getByRole('tab', { name: /testworld/ }).waitFor({ timeout: 2_000 });
+    await page.locator('.lm_tab', { hasText: 'testworld' }).waitFor({ timeout: 2_000 });
   });
 
   test('plain text dispatches an "input" JSON-RPC call', async ({ page, mockIPC }) => {
@@ -107,7 +107,7 @@ test.describe('Input bar — command history', () => {
     await page.goto('/');
     await mockIPC.waitConnected();
     mockIPC.pushEvent('hook', hookConnect('testworld'));
-    await page.getByRole('tab', { name: /testworld/ }).waitFor({ timeout: 2_000 });
+    await page.locator('.lm_tab', { hasText: 'testworld' }).waitFor({ timeout: 2_000 });
   });
 
   test('ArrowUp recalls the last submitted command', async ({ page }) => {

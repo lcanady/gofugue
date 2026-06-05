@@ -14,6 +14,7 @@ interface Window {
     encryptPassword: (plain: string) => Promise<string>;
     decryptPassword: (b64: string) => Promise<string>;
     quit: () => Promise<void>;
+    newWindow: () => Promise<{ ok: boolean }>;
   };
 }
 

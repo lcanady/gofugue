@@ -8,6 +8,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -48,7 +50,9 @@ var (
 	flagConnect   = flag.String("connect", "", "connect to a URL on startup (mud://host:port)")
 	flagScript    = flag.String("script", "", "load a .tf script on startup")
 	flagBridgePy  = flag.String("bridge-py", "", "path to bridge.py (enables /py scripting)")
-	flagVersion   = flag.Bool("version", false, "print version and exit")
+	flagVersion          = flag.Bool("version", false, "print version and exit")
+	flagStrictPerms      = flag.Bool("strict-permissions", false,
+		"treat world-readable config files containing plaintext passwords as a fatal error and refuse to start")
 )
 
 const version = "0.1.0-dev"
@@ -138,6 +142,14 @@ func loadConfig() config.Config {
 	for _, w := range cfgWarnings {
 		slog.Warn("config security", "msg", w)
 		fmt.Fprintln(os.Stderr, "warning:", w)
+	}
+	// --strict-permissions: any security warning about world-readable
+	// plaintext credentials or writable password_cmd files is treated as
+	// fatal.  The process refuses to start rather than continuing with the
+	// insecure configuration.
+	if *flagStrictPerms && len(cfgWarnings) > 0 {
+		fmt.Fprintln(os.Stderr, "fatal: config security warnings present and --strict-permissions is set; refusing to start")
+		os.Exit(1)
 	}
 
 	if *flagIPCPort > 0 {
@@ -240,7 +252,18 @@ func buildCommandContext(
 		},
 		Connect: func(name, url string) error {
 			wcfg := &config.WorldConfig{Name: name, URL: url}
-			return worldMgr.Connect(ctx, name, wcfg)
+			err := worldMgr.Connect(ctx, name, wcfg)
+			if err != nil && strings.Contains(err.Error(), "already connected") {
+				b.Publish(bus.WorldRenderedEvent{WorldLineEvent: bus.WorldLineEvent{
+					WorldName: "local",
+					Text:      fmt.Sprintf("World %q is already connected.", name),
+					Attrs:     bus.LineAttrs{FG: -1, BG: -1},
+				}})
+				b.Publish(bus.StatusEvent{WorldName: name, Connected: true})
+				b.Publish(bus.HookEvent{WorldName: name, Name: "CONNECT"})
+				return nil
+			}
+			return err
 		},
 		Disconnect: func(name string) error {
 			return worldMgr.Disconnect(name)
@@ -370,6 +393,28 @@ func buildCommandContext(
 	}
 }
 
+// generateIPCToken creates a random 32-byte hex token, writes it to
+// ~/.config/gofugue/ipc.token (mode 0600), and returns it. On any error it
+// logs a warning and returns an empty string (auth disabled).
+func generateIPCToken() string {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		slog.Warn("ipc token: crypto/rand failed, auth disabled", "err", err)
+		return ""
+	}
+	tok := hex.EncodeToString(raw)
+
+	dir := filepath.Dir(config.DefaultSocketPath())
+	_ = os.MkdirAll(dir, 0o700)
+	tokenPath := filepath.Join(dir, "ipc.token")
+	if err := os.WriteFile(tokenPath, []byte(tok+"\n"), 0o600); err != nil {
+		slog.Warn("ipc token: could not write token file, auth disabled", "path", tokenPath, "err", err)
+		return ""
+	}
+	slog.Info("ipc token written", "path", tokenPath)
+	return tok
+}
+
 func startIPCServer(
 	ctx context.Context,
 	cfg *config.Config,
@@ -379,7 +424,9 @@ func startIPCServer(
 	cancel context.CancelFunc,
 ) {
 	ipcCfg := ipc.Config{
-		SocketPath: config.DefaultSocketPath(),
+		SocketPath:    config.DefaultSocketPath(),
+		Token:         generateIPCToken(),
+		UnixSkipsAuth: true, // Unix socket is 0600; file perms are the gate
 	}
 	if cfg.IPC.TCPPort > 0 {
 		ipcCfg.TCPAddr = fmt.Sprintf("127.0.0.1:%d", cfg.IPC.TCPPort)

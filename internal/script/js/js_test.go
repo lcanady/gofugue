@@ -3,6 +3,8 @@ package js_test
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -280,5 +282,51 @@ func TestEval_NilCallbacks(t *testing.T) {
 	// setvar
 	if _, err := br.Eval(`tf.setvar("x", "y")`); err != nil {
 		t.Errorf("setvar with nil callback returned error: %v", err)
+	}
+}
+
+// TestLoad_PathTraversalBlocked verifies that Load rejects paths outside the
+// allowed roots (config dir and cwd). Loading /etc/passwd or any file outside
+// those directories must return an error — not the file contents.
+func TestLoad_PathTraversalBlocked(t *testing.T) {
+	br := newBridge(t, nil)
+
+	// /etc/passwd is a well-known file outside any allowed root.
+	// On CI the file may not exist, but the path check must fire before the
+	// ReadFile attempt, so we should get a path-restriction error regardless.
+	err := br.Load("/etc/passwd")
+	if err == nil {
+		t.Fatal("Load(\"/etc/passwd\") succeeded — path restriction not enforced")
+	}
+	if !strings.Contains(err.Error(), "outside") {
+		t.Errorf("expected 'outside' in error message, got: %v", err)
+	}
+}
+
+// TestLoad_AllowedRootAccepted verifies that Load accepts a JS file that lives
+// inside the current working directory (an allowed root).
+func TestLoad_AllowedRootAccepted(t *testing.T) {
+	br := newBridge(t, nil)
+
+	// Write a trivial JS file inside a temp dir that IS the cwd.
+	dir := t.TempDir()
+
+	// Override cwd for this test by changing directory and restoring it.
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chdir(orig) }) //nolint:errcheck
+
+	jsFile := filepath.Join(dir, "test.js")
+	if err := os.WriteFile(jsFile, []byte(`var _x = 1;`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := br.Load(jsFile); err != nil {
+		t.Fatalf("Load of allowed file failed: %v", err)
 	}
 }

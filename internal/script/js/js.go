@@ -23,12 +23,15 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/dop251/goja"
 	"github.com/kumakun/gofugue/internal/bus"
+	"github.com/kumakun/gofugue/internal/config"
 	"github.com/kumakun/gofugue/internal/script"
 	"github.com/kumakun/gofugue/internal/timers"
 )
@@ -107,9 +110,46 @@ func (br *Bridge) runWithDeadline(src string) (goja.Value, error) {
 	return v, err
 }
 
+// isSubDir reports whether realPath is inside base (after symlink resolution).
+func isSubDir(base, realPath string) bool {
+	if base == "" {
+		return false
+	}
+	realBase, err := filepath.EvalSymlinks(base)
+	if err != nil {
+		realBase = base
+	}
+	safeBase := realBase
+	if !strings.HasSuffix(safeBase, string(filepath.Separator)) {
+		safeBase += string(filepath.Separator)
+	}
+	return realPath == realBase || strings.HasPrefix(realPath, safeBase)
+}
+
 // Load reads and executes a JS file in the event loop.
+// The file must reside under an allowed root: the gofugue config directory or
+// the process working directory. Symlinks are resolved before the check.
 func (br *Bridge) Load(path string) error {
-	src, err := os.ReadFile(path)
+	cleanPath, err := filepath.Abs(filepath.Clean(path))
+	if err != nil {
+		return fmt.Errorf("js: invalid path: %w", err)
+	}
+	realPath, err := filepath.EvalSymlinks(cleanPath)
+	if err != nil {
+		return fmt.Errorf("js: invalid path (symlink eval): %w", err)
+	}
+
+	configDir, _ := filepath.Abs(config.ConfigDir())
+	cwd, _ := os.Getwd()
+	if cwd != "" {
+		cwd, _ = filepath.Abs(cwd)
+	}
+
+	if !isSubDir(configDir, realPath) && !isSubDir(cwd, realPath) {
+		return fmt.Errorf("js: script path %q is outside of allowed directories", path)
+	}
+
+	src, err := os.ReadFile(realPath)
 	if err != nil {
 		return fmt.Errorf("js: %w", err)
 	}

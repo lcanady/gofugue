@@ -44,6 +44,19 @@ export function TerminalPane({ worldName, className }: TerminalPaneProps) {
     }
   }, [lines.length, scrollLocked, virtualizer]);
 
+  // Listen for search-driven scroll events from SearchPanel
+  useEffect(() => {
+    const handler = (e: CustomEvent<{ worldName: string; lineIndex: number; query: string }>) => {
+      if (e.detail.worldName !== worldName) return;
+      const idx = e.detail.lineIndex;
+      if (idx >= 0 && idx < lines.length) {
+        virtualizer.scrollToIndex(idx, { align: 'center' });
+      }
+    };
+    window.addEventListener('gofugue:search-scroll', handler as EventListener);
+    return () => window.removeEventListener('gofugue:search-scroll', handler as EventListener);
+  }, [worldName, lines.length, virtualizer]);
+
   const handleScroll = useCallback(() => {
     const el = parentRef.current;
     if (!el) return;
